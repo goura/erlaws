@@ -5,14 +5,15 @@
 %% @end
 %%%-------------------------------------------------------------------
 
--module(erlaws_sqs,[AWS_KEY, AWS_SEC_KEY, SECURE]).
+-module(erlaws_sqs).
 
 %% exports
--export([list_queues/0, list_queues/1, get_queue_url/1, create_queue/1,
-	 create_queue/2, get_queue_attr/1, set_queue_attr/3, 
-	 delete_queue/1, send_message/2, 
-	 receive_message/1, receive_message/2, receive_message/3,
-	 delete_message/2]).
+-export([new/3]).
+-export([list_queues/1, list_queues/2, get_queue_url/2, create_queue/2,
+	 create_queue/3, get_queue_attr/2, set_queue_attr/4, 
+	 delete_queue/2, send_message/3, 
+	 receive_message/2, receive_message/3, receive_message/4,
+	 delete_message/3]).
 
 %% include record definitions
 -include_lib("xmerl/include/xmerl.hrl").
@@ -21,6 +22,9 @@
 -define(AWS_SQS_HOST, "queue.amazonaws.com").
 -define(AWS_SQS_VERSION, "2008-01-01").
 -define(USE_SIGNATURE_V1, false).
+
+new(AWS_KEY, AWS_SEC_KEY, SECURE) ->
+	{?MODULE, [AWS_KEY, AWS_SEC_KEY, SECURE]}.
 
 %% queues
 
@@ -34,8 +38,8 @@
 %%       {ok, QueueUrl::string(), {requestId, RequestId::string()}} |
 %%       {error, {HTTPStatus::string, HTTPReason::string()}, {Code::string(), Message::string(), {requestId, ReqId::string()}}}
 %% 
-create_queue(QueueName) ->
-    try query_request("CreateQueue", [{"QueueName", QueueName}]) of
+create_queue(QueueName, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    try query_request("CreateQueue", [{"QueueName", QueueName}], THIS) of
 	{ok, Body} ->
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    [#xmlText{value=QueueUrl}|_] = 
@@ -54,9 +58,9 @@ create_queue(QueueName) ->
 %%       {ok, QueueUrl::string(), {requestId, ReqId::string()}} |
 %%       {error, {HTTPStatus::string, HTTPReason::string()}, {Code::string(), Message::string(), {requestId, ReqId::string()}}}
 %% 
-create_queue(QueueName, VisibilityTimeout) when is_integer(VisibilityTimeout) ->
+create_queue(QueueName, VisibilityTimeout, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_integer(VisibilityTimeout) ->
     try query_request("CreateQueue", [{"QueueName", QueueName}, 
-		    {"DefaultVisibilityTimeout", integer_to_list(VisibilityTimeout)}]) of
+		    {"DefaultVisibilityTimeout", integer_to_list(VisibilityTimeout)}], THIS) of
 	{ok, Body} ->
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    [#xmlText{value=QueueUrl}|_] = 
@@ -76,8 +80,8 @@ create_queue(QueueName, VisibilityTimeout) when is_integer(VisibilityTimeout) ->
 %%       {ok, [QueueUrl::string(),...], {requestId, ReqId::string()}} |
 %%       {error, {HTTPStatus::string, HTTPReason::string()}, {Code::string(), Message::string(), {requestId, ReqId::string()}}}
 %%
-list_queues() ->
-    try query_request("ListQueues", []) of
+list_queues({?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    try query_request("ListQueues", [], THIS) of
 	{ok, Body} ->
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    QueueNodes = xmerl_xpath:string("//QueueUrl/text()", XmlDoc),
@@ -98,8 +102,8 @@ list_queues() ->
 %%       {ok, [QueueUrl::string(),...], {requestId, ReqId::string()}} |
 %%       {error, {HTTPStatus::string, HTTPReason::string()}, {Code::string(), Message::string(), {requestId, ReqId::string()}}}
 %%
-list_queues(Prefix) ->
-    try query_request("ListQueues", [{"QueueNamePrefix", Prefix}]) of
+list_queues(Prefix, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    try query_request("ListQueues", [{"QueueNamePrefix", Prefix}], THIS) of
 	{ok, Body} ->
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    QueueNodes = xmerl_xpath:string("//QueueUrl/text()", XmlDoc),
@@ -118,8 +122,8 @@ list_queues(Prefix) ->
 %%       {error, {HTTPStatus::string, HTTPReason::string()}, {Code::string(), Message::string(), {requestId, ReqId::string()}}} |
 %%       {error, no_match}
 %%
-get_queue_url(QueueName) ->
-    try query_request("ListQueues", [{"QueueNamePrefix", QueueName}]) of
+get_queue_url(QueueName, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    try query_request("ListQueues", [{"QueueNamePrefix", QueueName}], THIS) of
 	{ok, Body} ->
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),	    
 	    QueueNodes = xmerl_xpath:string("//QueueUrl/text()", XmlDoc),
@@ -146,9 +150,9 @@ get_queue_url(QueueName) ->
 %%             {"ApproximateNumberOfMessages", Number::integer()}], {requestId, ReqId::string()}} |
 %%       {error, {HTTPStatus::string, HTTPReason::string()}, {Code::string(), Message::string(), {requestId, ReqId::string()}}}
 %%
-get_queue_attr(QueueUrl) ->
+get_queue_attr(QueueUrl, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     try query_request(QueueUrl, "GetQueueAttributes",  
-		       [{"AttributeName", "All"}]) of
+		       [{"AttributeName", "All"}], THIS) of
 	{ok, Body} -> 
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    AttributeNodes = xmerl_xpath:string("//Attribute", XmlDoc),
@@ -177,11 +181,11 @@ get_queue_attr(QueueUrl) ->
 %%       {ok, {requestId, ReqId::string()}} |
 %%       {error, {HTTPStatus::string, HTTPReason::string()}, {Code::string(), Message::string(), {requestId, ReqId::string()}}}
 %%
-set_queue_attr(visibility_timeout, QueueUrl, Timeout) 
+set_queue_attr(visibility_timeout, QueueUrl, Timeout, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) 
   when is_integer(Timeout) ->
     try query_request(QueueUrl, "SetQueueAttributes", 
 		       [{"Attribute.Name", "VisibilityTimeout"},
-			{"Attribute.Value", integer_to_list(Timeout)}]) of
+			{"Attribute.Value", integer_to_list(Timeout)}], THIS) of
 	{ok, Body} -> 
 		{XmlDoc, _Rest} = xmerl_scan:string(Body),
 		[#xmlText{value=RequestId}|_] =
@@ -198,8 +202,8 @@ set_queue_attr(visibility_timeout, QueueUrl, Timeout)
 %%       {ok, {requestId, ReqId::string()}} |
 %%       {error, {HTTPStatus::string, HTTPReason::string()}, {Code::string(), Message::string(), {requestId, ReqId::string()}}}
 %%
-delete_queue(QueueUrl) ->
-    try query_request(QueueUrl, "DeleteQueue", []) of
+delete_queue(QueueUrl, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    try query_request(QueueUrl, "DeleteQueue", [], THIS) of
 	{ok, Body} -> 
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 		[#xmlText{value=RequestId}|_] =
@@ -219,8 +223,8 @@ delete_queue(QueueUrl) ->
 %%       {ok, Message::#sqs_message, {requestId, ReqId::string()}} |
 %%       {error, {HTTPStatus::string, HTTPReason::string()}, {Code::string(), Message::string(), {requestId, ReqId::string()}}}
 %%
-send_message(QueueUrl, Message) ->
-    try query_request(QueueUrl, "SendMessage", [{"MessageBody", Message}]) of
+send_message(QueueUrl, Message, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    try query_request(QueueUrl, "SendMessage", [{"MessageBody", Message}], THIS) of
 	{ok, Body} -> 
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    [#xmlText{value=MessageId}|_] = 
@@ -242,8 +246,8 @@ send_message(QueueUrl, Message) ->
 %%       {ok, [], {requestId, ReqId::string()}}
 %%       {error, {HTTPStatus::string, HTTPReason::string()}, {Code::string(), Message::string(), {requestId, ReqId::string()}}}
 %%
-receive_message(QueueUrl) ->
-    receive_message(QueueUrl, 1).
+receive_message(QueueUrl, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    receive_message(QueueUrl, 1, THIS).
 
 %% Tries to receive the given number of messages (<=10) from the given queue.
 %%
@@ -252,8 +256,8 @@ receive_message(QueueUrl) ->
 %%       {ok, [], {requestId, ReqId::string()}}
 %%       {error, {HTTPStatus::string, HTTPReason::string()}, {Code::string(), Message::string(), {requestId, ReqId::string()}}}
 %%
-receive_message(QueueUrl, NrOfMessages) ->
-	receive_message(QueueUrl, NrOfMessages, []).
+receive_message(QueueUrl, NrOfMessages, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+	receive_message(QueueUrl, NrOfMessages, [], THIS).
 
 %% Tries to receive the given number of messages (<=10) from the given queue, using the given VisibilityTimeout instead
 %% of the queues default value.
@@ -263,12 +267,12 @@ receive_message(QueueUrl, NrOfMessages) ->
 %%       {ok, [], {requestId, ReqId::string()}}
 %%       {error, {HTTPStatus::string, HTTPReason::string()}, {Code::string(), Message::string(), {requestId, ReqId::string()}}}
 %%
-receive_message(QueueUrl, NrOfMessages, VisibilityTimeout) when is_integer(NrOfMessages) ->
+receive_message(QueueUrl, NrOfMessages, VisibilityTimeout, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_integer(NrOfMessages) ->
 	VisibilityTimeoutParam = case VisibilityTimeout of
 		"" -> [];
 		_ -> [{"VisibilityTimeout", integer_to_list(VisibilityTimeout)}] end,
     try query_request(QueueUrl, "ReceiveMessage", 
-		     [{"MaxNumberOfMessages", integer_to_list(NrOfMessages)}] ++ VisibilityTimeoutParam) of
+		     [{"MaxNumberOfMessages", integer_to_list(NrOfMessages)}] ++ VisibilityTimeoutParam, THIS) of
 	{ok, Body} ->
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 		[#xmlText{value=RequestId}|_] = 
@@ -297,9 +301,9 @@ receive_message(QueueUrl, NrOfMessages, VisibilityTimeout) when is_integer(NrOfM
 %%       {ok, {requestId, RequestId::string()}} |
 %%       {error, {HTTPStatus::string, HTTPReason::string()}, {Code::string(), Message::string(), {requestId, ReqId::string()}}}
 %%
-delete_message(QueueUrl, ReceiptHandle) ->
+delete_message(QueueUrl, ReceiptHandle, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     try query_request(QueueUrl, "DeleteMessage",
-		      [{"ReceiptHandle", ReceiptHandle}]) of
+		      [{"ReceiptHandle", ReceiptHandle}], THIS) of
 	{ok, Body} ->
 		{XmlDoc, _Rest} = xmerl_scan:string(Body),
 		[#xmlText{value=RequestId}|_] = 
@@ -312,40 +316,39 @@ delete_message(QueueUrl, ReceiptHandle) ->
 
 %% internal methods
 
-sign(Key,Data) ->
+sign(Key,Data,_THIS) ->
     %%%% io:format("Sign:~n ~p~n", [Data]),
     binary_to_list(base64:encode(crypto:sha_mac(Key,Data))).
 
-query_request(Action, Parameters) ->
-	if
-		SECURE -> Prefix = "https://";
-		true -> Prefix = "http://"
-	end,
-	
-	query_request(Prefix ++ ?AWS_SQS_HOST ++ "/", Action, Parameters).
+query_request(Action, Parameters, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, SECURE]}=THIS) ->
+	Prefix = case SECURE of
+			true -> "https://";
+			_ -> "http://"
+		end,
+	query_request(Prefix ++ ?AWS_SQS_HOST ++ "/", Action, Parameters, THIS).
 
-query_request(Url, Action, Parameters) when ?USE_SIGNATURE_V1 ->
-    query_requestV1(Url, Action, Parameters);
-query_request(Url, Action, Parameters) ->
+query_request(Url, Action, Parameters, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when ?USE_SIGNATURE_V1 ->
+    query_requestV1(Url, Action, Parameters, THIS);
+query_request(Url, Action, Parameters, {?MODULE, [AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     Timestamp = lists:flatten(erlaws_util:get_timestamp()),
     Params = [{"Action", Action}, {"AWSAccessKeyId", AWS_KEY}, {"Timestamp", Timestamp}]
 	++Parameters ++ [{"Version", ?AWS_SQS_VERSION}],
-    Result = mkReq(Url, Params),
+    Result = mkReq(Url, Params, THIS),
     case Result of
 	{ok, _Status, Body} ->
 	    {ok, Body};
  	{error, {_Proto, Code, Reason}, Body} ->
-	    throw({error, {integer_to_list(Code), Reason}, mkErr(Body)})
+	    throw({error, {integer_to_list(Code), Reason}, mkErr(Body, THIS)})
     end.
 
-mkReq(Url, Params) ->
+mkReq(Url, Params, {?MODULE, [_AWS_KEY, AWS_SEC_KEY, _SECURE]}=THIS) ->
     QueryParams = [{"SignatureVersion", "2"}|[{"SignatureMethod", "HmacSHA1"}|Params]],
     ParamsString = erlaws_util:mkEnumeration([ erlaws_util:url_encode(Key) ++ "=" ++ erlaws_util:url_encode(Value) ||
 						 {Key, Value} <- lists:keysort(1, QueryParams)],
 					     "&"),
     {_, _, Host, _, Path, _} = http_uri:parse(Url),
     StringToSign = "POST\n" ++ string:to_lower(Host) ++ "\n" ++ Path ++ "\n" ++ ParamsString,
-    Signature = sign(AWS_SEC_KEY, StringToSign),
+    Signature = sign(AWS_SEC_KEY, StringToSign, THIS),
     SignatureString = "&Signature=" ++ erlaws_util:url_encode(Signature),
     PostData = ParamsString ++ SignatureString,
     %io:format("~p~n~s~n~s~n", [Params, Url, PostData]),
@@ -359,7 +362,7 @@ mkReq(Url, Params) ->
 	{_, _, _} -> {error, Status, binary_to_list(Body)}
     end.
 
-mkErr(Xml) ->
+mkErr(Xml, _THIS) ->
     {XmlDoc, _Rest} = xmerl_scan:string( Xml ),
     [#xmlText{value=ErrorCode}|_] = xmerl_xpath:string("//Error/Code/text()", 
 						       XmlDoc),
@@ -383,7 +386,7 @@ mkErr(Xml) ->
 %%% implemented above (plain requests work fine). Signature ver.1 based code are
 %%% left below for compatibility.
 
-query_requestV1(Url, Action, Parameters) ->
+query_requestV1(Url, Action, Parameters, {?MODULE, [AWS_KEY, AWS_SEC_KEY, _SECURE]}=THIS) ->
 	%% io:format("query_request: ~p ~p ~p~n", [Url, Action, Parameters]),
     Timestamp = lists:flatten(erlaws_util:get_timestamp()),
 	SignParams = [{"Action", Action}, {"AWSAccessKeyId", AWS_KEY}, {"Timestamp", Timestamp}] ++
@@ -394,19 +397,19 @@ query_requestV1(Url, Action, Parameters) ->
 		string:to_lower(KeyA) =< string:to_lower(KeyB) end, 
 		SignParams)], ""),
 	%% io:format("StringToSign: ~p~n", [StringToSign]),
-    Signature = sign(AWS_SEC_KEY, StringToSign),
+    Signature = sign(AWS_SEC_KEY, StringToSign, THIS),
 	%% io:format("Signature: ~p~n", [Signature]),
     FinalQueryParams = SignParams ++
 			[{"Signature", Signature}],
-    Result = mkReqV1(get, Url, [], FinalQueryParams, "", ""),
+    Result = mkReqV1(get, Url, [], FinalQueryParams, "", "", THIS),
     case Result of
 	{ok, _Status, Body} ->
 	    {ok, Body};
 	{error, {_Proto, Code, Reason}, Body} ->
-	    throw({error, {integer_to_list(Code), Reason}, mkErr(Body)})
+	    throw({error, {integer_to_list(Code), Reason}, mkErr(Body, THIS)})
     end.
 
-mkReqV1(Method, PreUrl, Headers, QueryParams, ContentType, ReqBody) ->
+mkReqV1(Method, PreUrl, Headers, QueryParams, ContentType, ReqBody, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     %%%% io:format("QueryParams:~n ~p~nHeaders:~n ~p~nUrl:~n ~p~n", 
     %%      [QueryParams, Headers, PreUrl]),
     Url = PreUrl ++ erlaws_util:queryParams( QueryParams ),
@@ -419,7 +422,7 @@ mkReqV1(Method, PreUrl, Headers, QueryParams, ContentType, ReqBody) ->
     HttpOptions = [{autoredirect, true}],
     Options = [ {sync,true}, {headers_as_is,true}, {body_format, binary} ],
     {ok, {Status, _ReplyHeaders, Body}} = 
-	http:request(Method, Request, HttpOptions, Options),
+	http:request(Method, Request, HttpOptions, Options, THIS),
     %% io:format("Response:~n ~p~n", [binary_to_list(Body)]),
 	%% io:format("Status: ~p~n", [Status]),
     case Status of 
