@@ -346,7 +346,15 @@ mkReq(Url, Params, {?MODULE, [_AWS_KEY, AWS_SEC_KEY, _SECURE]}=THIS) ->
     ParamsString = erlaws_util:mkEnumeration([ erlaws_util:url_encode(Key) ++ "=" ++ erlaws_util:url_encode(Value) ||
 						 {Key, Value} <- lists:keysort(1, QueryParams)],
 					     "&"),
-    {_, _, Host, _, Path, _} = http_uri:parse(Url),
+    
+    {Host, Path} = 
+        case http_uri:parse(Url) of
+            {ok, {_, _, Host0, _, Path0, _}} -> %% R15B
+                {Host0, Path0};
+            {_, _, Host1, _, Path1, _} ->
+                {Host1, Path1}
+        end,
+
     StringToSign = "POST\n" ++ string:to_lower(Host) ++ "\n" ++ Path ++ "\n" ++ ParamsString,
     Signature = sign(AWS_SEC_KEY, StringToSign, THIS),
     SignatureString = "&Signature=" ++ erlaws_util:url_encode(Signature),

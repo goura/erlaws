@@ -35,7 +35,7 @@ new(AWS_KEY, AWS_SEC_KEY, SECURE) ->
 %% of the request.
 %%
 %% Spec: list_buckets() -> 
-%%       {ok, Buckets::[Name::string()]} |
+%%       {ok, Buckets::[Name::string()], ReqId::string()} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
 list_buckets({?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
@@ -58,7 +58,7 @@ list_buckets({?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
 %% for information on bucket naming restrictions.
 %% 
 %% Spec: create_bucket(Bucket::string()) ->
-%%       {ok, Bucket::string()} |
+%%       {ok, Bucket::string(), ReqId::string()} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
 create_bucket(Bucket, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
@@ -112,7 +112,7 @@ create_bucket(Bucket, Region, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS)
 %% Deletes a bucket. 
 %% 
 %% Spec: delete_bucket(Bucket::string()) ->
-%%       {ok} |
+%%       {ok, {requestId, RequestId}} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
 delete_bucket(Bucket, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
@@ -299,7 +299,7 @@ put_file(Bucket, Key, FileName, ContentType, Metadata, {?MODULE, [AWS_KEY, AWS_S
                      stringToSign("PUT", "", ContentType, Date,
                                   Bucket, Key, Headers, THIS), THIS),
     FinalHeaders = [ {"Authorization", "AWS " ++ AWS_KEY ++ ":" ++ Signature },
-		     {"Host", buildHost(Bucket, THIS) },
+		     {"Host", buildHost(Bucket) },
 		     {"Date", Date },
 		     {"Content-Type", ContentType}
 		     | Headers ],
@@ -357,7 +357,7 @@ info_object(Bucket, Key, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
 %% Delete the given key from bucket.
 %% 
 %% Spec: delete_object(Bucket::string(), Key::string()) ->
-%%       {ok} |
+%%       {ok, {requestId, ReqId::string()}} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
 delete_object(Bucket, Key, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
@@ -376,25 +376,25 @@ delete_object(Bucket, Key, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 
-isAmzHeader( Header, _THIS ) -> lists:prefix("x-amz-", Header).
+isAmzHeader( Header ) -> lists:prefix("x-amz-", Header).
 
-aggregateValues ({K,V}, [{K,L}|T], _THIS) -> [{K,[V|L]}|T];
-aggregateValues ({K,V}, L, _THIS) -> [{K,[V]}|L].
+aggregateValues ({K,V}, [{K,L}|T]) -> [{K,[V|L]}|T];
+aggregateValues ({K,V}, L) -> [{K,[V]}|L].
 
-collapse(L, THIS) ->
-    AggrL = lists:foldl( fun aggregateValues/3, [], lists:keysort(1, L), THIS ),
+collapse(L) ->
+    AggrL = lists:foldl( fun aggregateValues/2, [], lists:keysort(1, L) ),
     lists:keymap( fun lists:sort/1, 2, lists:reverse(AggrL)).
 
 
-mkHdr ({Key,Values}, _THIS) ->
+mkHdr ({Key,Values}) ->
     Key ++ ":" ++ erlaws_util:mkEnumeration(Values,",").
 
-canonicalizeAmzHeaders( Headers, THIS ) ->
+canonicalizeAmzHeaders( Headers ) ->
     XAmzHeaders = [ {string:to_lower(Key),Value} || {Key,Value} <- Headers, 
-						    isAmzHeader(Key, THIS) ],
+						    isAmzHeader(Key) ],
     Strings = lists:map( 
-		fun mkHdr/2, 
-		collapse(XAmzHeaders, THIS), THIS),
+		fun mkHdr/1, 
+		collapse(XAmzHeaders)),
     erlaws_util:mkEnumeration( [[String, "\n"] || String <- Strings], "").
 
 canonicalizeResource ( "", "", _THIS ) -> "/";
@@ -417,9 +417,9 @@ makeParam(X, _THIS) ->
     end.
 
 
-buildHost("", _THIS) ->
+buildHost("") ->
     ?AWS_S3_HOST;
-buildHost(Bucket, _THIS) ->
+buildHost(Bucket) ->
     Bucket ++ "." ++ ?AWS_S3_HOST.
 
 buildProtocol({?MODULE, [_AWS_KEY, _AWS_SEC_KEY, SECURE]}) ->
@@ -458,7 +458,7 @@ buildContentMD5Header(ContentMD5, _THIS) ->
 stringToSign ( Verb, ContentMD5, ContentType, Date, Bucket, Path, 
 	       OriginalHeaders, THIS ) ->
     Parts = [ Verb, ContentMD5, ContentType, Date, 
-	      canonicalizeAmzHeaders(OriginalHeaders, THIS)],
+	      canonicalizeAmzHeaders(OriginalHeaders)],
     erlaws_util:mkEnumeration( Parts, "\n") ++ 
 	canonicalizeResource(Bucket, Path, THIS).
 
@@ -474,7 +474,7 @@ genericRequest( Method, Bucket, Path, QueryParams, Metadata,
 	HTTPHeaders, Body, NrOfRetries, {?MODULE, [AWS_KEY, AWS_SEC_KEY, _SECURE]}=THIS) ->
     Date = httpd_util:rfc1123_date(erlang:localtime()),
     MethodString = string:to_upper( atom_to_list(Method) ),
-    Url = buildUrl(Bucket,Path,QueryParams,THIS),
+    Url = lists:flatten(buildUrl(Bucket,Path,QueryParams,THIS)),
 
     ContentMD5 = case iolist_size(Body) of
 		     0 -> "";
@@ -501,7 +501,7 @@ genericRequest( Method, Bucket, Path, QueryParams, Metadata,
 				  Headers, THIS), THIS),
     
     FinalHeaders = [ {"Authorization","AWS " ++ AccessKey ++ ":" ++ Signature },
-		     {"Host", buildHost(Bucket, THIS) },
+		     {"Host", buildHost(Bucket) },
 		     {"Date", Date },
 		     {"Expect", "Continue"}
 		     | Headers ],
