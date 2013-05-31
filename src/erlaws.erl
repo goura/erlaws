@@ -6,7 +6,7 @@
 
 start() ->
     application:start(sasl),
-    crypto:start(),
+    ssl:start(),
     inets:start().
 
 start(_Type, _Args) -> 

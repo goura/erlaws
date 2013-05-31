@@ -75,8 +75,8 @@ url_encode_char([X | T], Acc) when X == $-; X == $_; X == $. ->
 %    url_encode_char(T, [$+ | Acc]);
 url_encode_char([X | T], Acc) ->
     url_encode_char(T, [$%, d2h(X bsr 4), d2h(X band 16#0f) | Acc]);
-			url_encode_char([], Acc) ->
-			       Acc.
+url_encode_char([], Acc) ->
+    Acc.
 
 d2h(N) when N<10 -> N+$0;
 % Commented out to strictly comply with AWS requirement -- goura
