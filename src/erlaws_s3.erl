@@ -6,13 +6,14 @@
 %%% Created : 25 Dec 2007 by Sascha Matzke <sascha.matzke@didolo.org>
 %%%-------------------------------------------------------------------
 
--module(erlaws_s3, [AWS_KEY, AWS_SEC_KEY, SECURE]).
+-module(erlaws_s3).
 
 %% API
--export([list_buckets/0, create_bucket/1, create_bucket/2, delete_bucket/1]).
--export([list_contents/1, list_contents/2, put_object/5, put_file/5, get_object/2]).
--export([info_object/2, delete_object/2]).
--export([initiate_mp_upload/4, complete_mp_upload/4, abort_mp_upload/3, upload_part/6]).
+-export([new/3]).
+-export([list_buckets/1, create_bucket/2, create_bucket/3, delete_bucket/2]).
+-export([list_contents/2, list_contents/3, put_object/6, put_file/6, get_object/3]).
+-export([info_object/3, delete_object/3]).
+-export([initiate_mp_upload/5, complete_mp_upload/5, abort_mp_upload/4, upload_part/7]).
 
 %% include record definitions
 -include_lib("xmerl/include/xmerl.hrl").
@@ -27,15 +28,18 @@
 -define(PREFIX_XPATH, "//CommonPrefixes/Prefix/text()").
 -define(CHUNK_SIZE, 8 * 1024).
 
+new(AWS_KEY, AWS_SEC_KEY, SECURE) ->
+	{?MODULE, [AWS_KEY, AWS_SEC_KEY, SECURE]}.
+
 %% Returns a list of all of the buckets owned by the authenticated sender 
 %% of the request.
 %%
 %% Spec: list_buckets() -> 
-%%       {ok, Buckets::[Name::string()]} |
+%%       {ok, Buckets::[Name::string()], ReqId::string()} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
-list_buckets() ->
-    try genericRequest(get, "", "", [], [], [], <<>>) of
+list_buckets({?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    try genericRequest(get, "", "", [], [], [], <<>>, THIS) of
 	{ok, Headers, Body} -> 
 	    {XmlDoc, _Rest} = xmerl_scan:string(binary_to_list(Body)),
 	    TextNodes       = xmerl_xpath:string("//Bucket/Name/text()", XmlDoc),
@@ -54,11 +58,11 @@ list_buckets() ->
 %% for information on bucket naming restrictions.
 %% 
 %% Spec: create_bucket(Bucket::string()) ->
-%%       {ok, Bucket::string()} |
+%%       {ok, Bucket::string(), ReqId::string()} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
-create_bucket(Bucket) ->
-    try genericRequest(put, Bucket, "", [], [], [], <<>>) of
+create_bucket(Bucket, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    try genericRequest(put, Bucket, "", [], [], [], <<>>, THIS) of
 	{ok, Headers, _Body} -> 
 	    RequestId = case lists:keytake("x-amz-request-id", 1, Headers) of
 			{value, {_, ReqId}, _} -> ReqId;
@@ -81,20 +85,20 @@ create_bucket(Bucket) ->
 %%       {ok, Bucket::string()} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
-create_bucket(Bucket, eu) ->
-    create_bucket(Bucket, 'EU');
+create_bucket(Bucket, eu, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    create_bucket(Bucket, 'EU', THIS);
 %% Creates a new bucket with a location constraint.
 %% ex) create_bucket("bucket", 'ap-southeast-1')
 %%
 %% Spec: create_bucket(Bucket::string(), Region::atom()) ->
 %%       {ok, Bucket::string()} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
-create_bucket(Bucket, Region) ->
+create_bucket(Bucket, Region, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     LCfgStr = io_lib:format("<CreateBucketConfiguration>
                   <LocationConstraint>~s</LocationConstraint>
              </CreateBucketConfiguration>", [Region]),
     LCfg = list_to_binary(LCfgStr),
-    try genericRequest(put, Bucket, "", [], [], [], LCfg) of
+    try genericRequest(put, Bucket, "", [], [], [], LCfg, THIS) of
 	{ok, Headers, _Body} ->
 		RequestId = case lists:keytake("x-amz-request-id", 1, Headers) of
 			{value, {_, ReqId}, _} -> ReqId;
@@ -108,11 +112,11 @@ create_bucket(Bucket, Region) ->
 %% Deletes a bucket. 
 %% 
 %% Spec: delete_bucket(Bucket::string()) ->
-%%       {ok} |
+%%       {ok, {requestId, RequestId}} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
-delete_bucket(Bucket) ->
-    try genericRequest(delete, Bucket, "", [], [], [], <<>>) of
+delete_bucket(Bucket, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    try genericRequest(delete, Bucket, "", [], [], [], <<>>, THIS) of
 	{ok, Headers, _Body} ->
 	    RequestId = case lists:keytake(?S3_REQ_ID_HEADER, 1, Headers) of
 			{value, {_, ReqId}, _} -> ReqId;
@@ -131,8 +135,8 @@ delete_bucket(Bucket) ->
 %%                         prefix::[string()]}} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
-list_contents(Bucket) ->
-    list_contents(Bucket, []).
+list_contents(Bucket, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    list_contents(Bucket, [], THIS).
 
 %% Lists the contents of a bucket.
 %%
@@ -146,15 +150,15 @@ list_contents(Bucket) ->
 %%       Options -> [{prefix, string()}, {marker, string()},
 %%	             {max_keys, integer()}, {delimiter, string()}]
 %%
-list_contents(Bucket, Options) when is_list(Options) ->
-    QueryParameters = [makeParam(X) || X <- Options],
-    try genericRequest(get, Bucket, "", QueryParameters, [], [], <<>>) of
+list_contents(Bucket, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Options) ->
+    QueryParameters = [makeParam(X, THIS) || X <- Options],
+    try genericRequest(get, Bucket, "", QueryParameters, [], [], <<>>, THIS) of
 	{ok, Headers, Body} -> 
 	    {XmlDoc, _Rest} = xmerl_scan:string(binary_to_list(Body)),
 	    [Truncated| _Tail] = xmerl_xpath:string("//IsTruncated/text()", 
 						    XmlDoc),
 	    ContentNodes = xmerl_xpath:string("//Contents", XmlDoc),
-	    KeyList = [extractObjectInfo(Node) || Node <- ContentNodes],
+	    KeyList = [extractObjectInfo(Node, THIS) || Node <- ContentNodes],
 	    PrefixList = [Node#xmlText.value || 
 			     Node <- xmerl_xpath:string(?PREFIX_XPATH, XmlDoc)],
 		RequestId = case lists:keytake(?S3_REQ_ID_HEADER, 1, Headers) of
@@ -177,8 +181,8 @@ list_contents(Bucket, Options) when is_list(Options) ->
 %%       {ok, #s3_object_info(key=Key::string(), size=Size::integer())} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
-put_object(Bucket, Key, Data, ContentType, Metadata) when is_integer(hd(ContentType)) ->
-    put_object(Bucket, Key, Data, [{"Content-Type", ContentType}], Metadata);
+put_object(Bucket, Key, Data, ContentType, Metadata, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_integer(hd(ContentType)) ->
+    put_object(Bucket, Key, Data, [{"Content-Type", ContentType}], Metadata, THIS);
 
 %% Uploads data for key. More general version.
 %%
@@ -193,8 +197,8 @@ put_object(Bucket, Key, Data, ContentType, Metadata) when is_integer(hd(ContentT
 %% S3:put_object("someBucket", "filename.js", <<"...">>, [{"Content-Type", "application/x-javascript; charset=\"utf-8\""},{"Cache-Control", "max-age=86400"},{"x-amz-acl", "public-read"}], [{"name", "metavalue"}]).
 %% S3:put_object("someBucket", "filename.mp4", <<"...">>, [{"Content-Type", "video/mp4"}, {"x-amz-storage-class", "REDUCED_REDUNDANCY"}], []).
 %%
-put_object(Bucket, Key, Data, HTTPHeaders, Metadata) ->
-    try genericRequest(put, Bucket, Key, [], Metadata, HTTPHeaders, Data) of
+put_object(Bucket, Key, Data, HTTPHeaders, Metadata, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    try genericRequest(put, Bucket, Key, [], Metadata, HTTPHeaders, Data, THIS) of
 	{ok, Headers, _Body} -> 
 	    {ok,
 	     #s3_object_info{key=Key, size=iolist_size(Data),
@@ -208,13 +212,13 @@ put_object(Bucket, Key, Data, HTTPHeaders, Metadata) ->
 %% @doc
 %% Initiates multipart upload.
 %% @end
--spec initiate_mp_upload(Bucket::string(), Key::string(),
-			 HTTPHeaders::[{string(), string()}],
-			 Metadata::[{string(), string()}]) ->
-			    {ok, UploadId::string(), ReqId::string()}.
-initiate_mp_upload(Bucket, Key, HTTPHeaders, Metadata) ->
+%% -spec initiate_mp_upload(Bucket::string(), Key::string(),
+%%			 HTTPHeaders::[{string(), string()}],
+%%			 Metadata::[{string(), string()}]) ->
+%%			    {ok, UploadId::string(), ReqId::string()}.
+initiate_mp_upload(Bucket, Key, HTTPHeaders, Metadata, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     try genericRequest(post, Bucket, Key, [{"uploads", ""}],
-		       Metadata, HTTPHeaders, <<>>) of
+		       Metadata, HTTPHeaders, <<>>, THIS) of
 	{ok, Headers, Body} ->
 	    {XmlDoc, _Rest} = xmerl_scan:string(binary_to_list(Body)),
 	    [_XBucket|_] = xmerl_xpath:string("/InitiateMultipartUploadResult/Bucket/text()", XmlDoc),
@@ -229,9 +233,9 @@ initiate_mp_upload(Bucket, Key, HTTPHeaders, Metadata) ->
 %% @doc
 %% Completes multipart upload.
 %% @end
--spec complete_mp_upload(Bucket::string(), Key::string(), UploadId::string(),
-			 [{PartNum::integer(), ETag::string()}]) -> ok.
-complete_mp_upload(Bucket, Key, UploadId, Parts) ->
+%% -spec complete_mp_upload(Bucket::string(), Key::string(), UploadId::string(),
+%% 			 [{PartNum::integer(), ETag::string()}]) -> ok.
+complete_mp_upload(Bucket, Key, UploadId, Parts, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     F = fun({PartNum, ETag}) ->
 		{'Part', [],
 		 [
@@ -243,7 +247,7 @@ complete_mp_upload(Bucket, Key, UploadId, Parts) ->
     Req = {'CompleteMultipartUpload', [], [F(X) || X <- Parts]},
     XMLReqBody = xmerl:export_simple([Req], xmerl_xml),
     try genericRequest(post, Bucket, Key,
-		       [{"uploadId", UploadId}], [], [], XMLReqBody) of
+		       [{"uploadId", UploadId}], [], [], XMLReqBody, THIS) of
 	{ok, _Headers, _Body} -> ok
     catch
 	throw:{error, Descr} ->
@@ -253,11 +257,11 @@ complete_mp_upload(Bucket, Key, UploadId, Parts) ->
 %% @doc
 %% Aborts multipart upload.
 %% @end
--spec abort_mp_upload(Bucket::string(), Key::string(), UploadId::string()) ->
-			      ok.
-abort_mp_upload(Bucket, Key, UploadId) ->
+%% -spec abort_mp_upload(Bucket::string(), Key::string(), UploadId::string()) ->
+%%			      ok.
+abort_mp_upload(Bucket, Key, UploadId, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     try genericRequest(delete, Bucket, Key,
-		       [{"uploadId", UploadId}], [], [], <<>>) of
+		       [{"uploadId", UploadId}], [], [], <<>>, THIS) of
 	{ok, _Headers, _Body} -> ok
     catch
 	throw:{error, Descr} ->
@@ -267,14 +271,14 @@ abort_mp_upload(Bucket, Key, UploadId) ->
 %% @doc
 %% Uploads a part in multipart upload.
 %% @end
--spec upload_part(Bucket::string(), Key::string(), PartNum::integer(),
-		  UploadId::string(), Data::binary(),
-		  HTTPHeaders::[{string(), string()}]) -> ok.
-upload_part(Bucket, Key, PartNum, UploadId, Data, HTTPHeaders) ->
+%% -spec upload_part(Bucket::string(), Key::string(), PartNum::integer(),
+%%		  UploadId::string(), Data::binary(),
+%%		  HTTPHeaders::[{string(), string()}]) -> ok.
+upload_part(Bucket, Key, PartNum, UploadId, Data, HTTPHeaders, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     try genericRequest(put, Bucket, Key,
 		       [{"partNumber", integer_to_list(PartNum)},
 			{"uploadId", UploadId}],
-		       [], HTTPHeaders, Data) of
+		       [], HTTPHeaders, Data, THIS) of
 	{ok, Headers, _Body} ->
 	    {ok,
 	     #s3_object_info{key=Key, size=iolist_size(Data),
@@ -285,15 +289,15 @@ upload_part(Bucket, Key, PartNum, UploadId, Data, HTTPHeaders) ->
 	    {error, Descr}
     end.
 
-put_file(Bucket, Key, FileName, ContentType, Metadata) ->
+put_file(Bucket, Key, FileName, ContentType, Metadata, {?MODULE, [AWS_KEY, AWS_SEC_KEY, _SECURE]}=THIS) ->
     Date = httpd_util:rfc1123_date(erlang:localtime()),
-    {FileSize, File} = openAndGetFileSize(FileName),
+    {FileSize, File} = openAndGetFileSize(FileName, THIS),
     Headers = 
-        buildContentHeaders(FileSize) ++
-	buildMetadataHeaders(Metadata),
+        buildContentHeaders(FileSize, THIS) ++
+	buildMetadataHeaders(Metadata, THIS),
     Signature = sign(AWS_SEC_KEY,
                      stringToSign("PUT", "", ContentType, Date,
-                                  Bucket, Key, Headers)),
+                                  Bucket, Key, Headers, THIS), THIS),
     FinalHeaders = [ {"Authorization", "AWS " ++ AWS_KEY ++ ":" ++ Signature },
 		     {"Host", buildHost(Bucket) },
 		     {"Date", Date },
@@ -308,7 +312,7 @@ put_file(Bucket, Key, FileName, ContentType, Metadata) ->
     {ok, Socket} = gen_tcp:connect(?AWS_S3_HOST, 80, 
                                    [binary, {active, false}, {packet, 0}]),
     gen_tcp:send(Socket, list_to_binary(Payload)),
-    sendData(Socket, File),
+    sendData(Socket, File, THIS),
     gen_tcp:close(Socket),
     file:close(File).
        
@@ -318,8 +322,8 @@ put_file(Bucket, Key, FileName, ContentType, Metadata) ->
 %%       {ok, Data::binary()} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
-get_object(Bucket, Key) ->
-    try genericRequest(get, Bucket, Key, [], [], [], <<>>) of
+get_object(Bucket, Key, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    try genericRequest(get, Bucket, Key, [], [], [], <<>>, THIS) of
 	{ok, Headers, Body} -> 
 		RequestId = case lists:keytake(?S3_REQ_ID_HEADER, 1, Headers) of
 			{value, {_, ReqId}, _} -> ReqId;
@@ -336,10 +340,9 @@ get_object(Bucket, Key) ->
 %%       {ok, [{Key::string(), Value::string()},...], {requestId, ReqId::string()}} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
-info_object(Bucket, Key) ->
-    try genericRequest(head, Bucket, Key, [], [], [], <<>>) of
+info_object(Bucket, Key, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    try genericRequest(head, Bucket, Key, [], [], [], <<>>, THIS) of
 	{ok, Headers, _Body} ->
-	    io:format("Headers: ~p~n", [Headers]),
 		MetadataList = [{string:substr(MKey, 12), Value} || {MKey, Value} <- Headers, string:str(MKey, "x-amz-meta") == 1],
 		RequestId = case lists:keytake(?S3_REQ_ID_HEADER, 1, Headers) of
 			{value, {_, ReqId}, _} -> ReqId;
@@ -353,11 +356,11 @@ info_object(Bucket, Key) ->
 %% Delete the given key from bucket.
 %% 
 %% Spec: delete_object(Bucket::string(), Key::string()) ->
-%%       {ok} |
+%%       {ok, {requestId, ReqId::string()}} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
-delete_object(Bucket, Key) ->
-    try genericRequest(delete, Bucket, Key, [], [], [], <<>>) of
+delete_object(Bucket, Key, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    try genericRequest(delete, Bucket, Key, [], [], [], <<>>, THIS) of
 	{ok, Headers, _Body} ->
 		RequestId = case lists:keytake(?S3_REQ_ID_HEADER, 1, Headers) of
 			{value, {_, ReqId}, _} -> ReqId;
@@ -393,12 +396,12 @@ canonicalizeAmzHeaders( Headers ) ->
 		collapse(XAmzHeaders)),
     erlaws_util:mkEnumeration( [[String, "\n"] || String <- Strings], "").
 
-canonicalizeResource ( "", "" ) -> "/";
-canonicalizeResource ( Bucket, "" ) -> "/" ++ Bucket ++ "/";
-canonicalizeResource ( "", Path) -> "/" ++ Path;
-canonicalizeResource ( Bucket, Path ) -> "/" ++ Bucket ++ "/" ++ Path.
+canonicalizeResource ( "", "", _THIS ) -> "/";
+canonicalizeResource ( Bucket, "", _THIS ) -> "/" ++ Bucket ++ "/";
+canonicalizeResource ( "", Path, _THIS) -> "/" ++ Path;
+canonicalizeResource ( Bucket, Path, _THIS ) -> "/" ++ Bucket ++ "/" ++ Path.
 
-makeParam(X) ->
+makeParam(X, _THIS) ->
     case X of
 	{_, []} -> {};
 	{prefix, Prefix} -> 
@@ -418,59 +421,59 @@ buildHost("") ->
 buildHost(Bucket) ->
     Bucket ++ "." ++ ?AWS_S3_HOST.
 
-buildProtocol() ->
+buildProtocol({?MODULE, [_AWS_KEY, _AWS_SEC_KEY, SECURE]}) ->
 	case SECURE of 
 		true -> "https://";
 		_ -> "http://" end.
 
-buildUrl("", "", []) ->
-    buildProtocol() ++ ?AWS_S3_HOST ++ "/";
-buildUrl("", Path, []) ->
-    buildProtocol() ++ ?AWS_S3_HOST ++ Path;
-buildUrl(Bucket,Path,QueryParams) -> 
-    buildProtocol() ++ Bucket ++ "." ++ ?AWS_S3_HOST ++ "/" ++ Path ++ 
+buildUrl("", "", [], THIS) ->
+    buildProtocol(THIS) ++ ?AWS_S3_HOST ++ "/";
+buildUrl("", Path, [], THIS) ->
+    buildProtocol(THIS) ++ ?AWS_S3_HOST ++ Path;
+buildUrl(Bucket,Path,QueryParams,THIS) -> 
+    buildProtocol(THIS) ++ Bucket ++ "." ++ ?AWS_S3_HOST ++ "/" ++ Path ++ 
 	erlaws_util:queryParams(QueryParams).
 
-buildContentHeaders(Contents) when is_integer(Contents) -> 
+buildContentHeaders(Contents, _THIS) when is_integer(Contents) -> 
     [{"Content-Length", integer_to_list(Contents)}];
 % Detect gzip header and put appropriate Content-Encoding. Questionable?..
-buildContentHeaders(<<16#1f, 16#8b, _/binary>> = Contents) -> 
+buildContentHeaders(<<16#1f, 16#8b, _/binary>> = Contents, _THIS) -> 
     [{"Content-Length", integer_to_list(iolist_size(Contents))},
      {"Content-Encoding", "gzip"}];
-buildContentHeaders(Contents) -> 
+buildContentHeaders(Contents, _THIS) -> 
     [{"Content-Length", integer_to_list(iolist_size(Contents))}].
 
-buildMetadataHeaders(Metadata) ->
+buildMetadataHeaders(Metadata, _THIS) ->
     lists:foldl(fun({Key, Value}, Acc) ->
 		[{string:to_lower("x-amz-meta-"++Key), Value} | Acc]
 	end, [], Metadata).
 
-buildContentMD5Header(ContentMD5) ->
+buildContentMD5Header(ContentMD5, _THIS) ->
     case ContentMD5 of
 	"" -> [];
 	_ -> [{"Content-MD5", ContentMD5}]
     end.
 
 stringToSign ( Verb, ContentMD5, ContentType, Date, Bucket, Path, 
-	       OriginalHeaders ) ->
+	       OriginalHeaders, THIS ) ->
     Parts = [ Verb, ContentMD5, ContentType, Date, 
 	      canonicalizeAmzHeaders(OriginalHeaders)],
     erlaws_util:mkEnumeration( Parts, "\n") ++ 
-	canonicalizeResource(Bucket, Path).
+	canonicalizeResource(Bucket, Path, THIS).
 
-sign (Key,Data) ->
+sign (Key,Data,_THIS) ->
     binary_to_list( base64:encode( crypto:sha_mac(Key,Data) ) ).
 
 genericRequest( Method, Bucket, Path, QueryParams, Metadata,
-		HTTPHeaders, Body ) ->
+		HTTPHeaders, Body, THIS ) ->
     genericRequest( Method, Bucket, Path, QueryParams, Metadata,
-		    HTTPHeaders, Body, ?NR_OF_RETRIES).
+		    HTTPHeaders, Body, ?NR_OF_RETRIES, THIS).
 
 genericRequest( Method, Bucket, Path, QueryParams, Metadata, 
-		HTTPHeaders, Body, NrOfRetries) ->
+	HTTPHeaders, Body, NrOfRetries, {?MODULE, [AWS_KEY, AWS_SEC_KEY, _SECURE]}=THIS) ->
     Date = httpd_util:rfc1123_date(erlang:localtime()),
     MethodString = string:to_upper( atom_to_list(Method) ),
-    Url = buildUrl(Bucket,Path,QueryParams),
+    Url = lists:flatten(buildUrl(Bucket,Path,QueryParams,THIS)),
 
     ContentMD5 = case iolist_size(Body) of
 		     0 -> "";
@@ -478,9 +481,9 @@ genericRequest( Method, Bucket, Path, QueryParams, Metadata,
 		 end,
     
     Headers =
-        buildContentHeaders(Body) ++
-	buildMetadataHeaders(Metadata) ++ 
-	buildContentMD5Header(ContentMD5) ++
+        buildContentHeaders(Body, THIS) ++
+	buildMetadataHeaders(Metadata, THIS) ++ 
+	buildContentMD5Header(ContentMD5, THIS) ++
 	HTTPHeaders,
 
     ContentType = case [Value || {"Content-Type", Value} <- HTTPHeaders] of
@@ -494,7 +497,7 @@ genericRequest( Method, Bucket, Path, QueryParams, Metadata,
 		     stringToSign(MethodString, ContentMD5, ContentType, Date,
 				  Bucket,
 				  Path ++ erlaws_util:queryParams(QueryParams),
-				  Headers )),
+				  Headers, THIS), THIS),
     
     FinalHeaders = [ {"Authorization","AWS " ++ AccessKey ++ ":" ++ Signature },
 		     {"Host", buildHost(Bucket) },
@@ -513,7 +516,7 @@ genericRequest( Method, Bucket, Path, QueryParams, Metadata,
     HttpOptions = [{autoredirect, true}],
     Options = [ {sync,true}, {headers_as_is,true}, {body_format, binary} ],
 
-    Reply = http:request( Method, Request, HttpOptions, Options ),
+    Reply = httpc:request( Method, Request, HttpOptions, Options ),
     
     %%     {ok, {Status, ReplyHeaders, RBody}} = Reply,
     %%     io:format("Response:~n ~p~n~p~n~p~n", [Status, ReplyHeaders, 
@@ -533,11 +536,11 @@ genericRequest( Method, Bucket, Path, QueryParams, Metadata,
 	      _ResponseBody }} when Code=:=500 ->
 	    timer:sleep((?NR_OF_RETRIES-NrOfRetries)*500),
 	    genericRequest(Method, Bucket, Path, QueryParams, 
-			   Metadata, HTTPHeaders, Body, NrOfRetries-1);
+			   Metadata, HTTPHeaders, Body, NrOfRetries-1, THIS);
 	
  	{ok, {{_HttpVersion, HttpCode, ReasonPhrase}, ResponseHeaders, 
 	      ResponseBody }} ->
-	    throw (try mkErr(ResponseBody, ResponseHeaders) of
+	    throw (try mkErr(ResponseBody, ResponseHeaders, THIS) of
 		      {error, Reason} -> {error, Reason}
 		  catch
 		      exit:_Error ->
@@ -546,7 +549,7 @@ genericRequest( Method, Bucket, Path, QueryParams, Metadata,
 		  end)
     end.
 
-mkErr (Xml, Headers) ->
+mkErr (Xml, Headers, _THIS) ->
     {XmlDoc, _Rest} = xmerl_scan:string( binary_to_list(Xml) ),
     [#xmlText{value=ErrorCode}|_] = 
 	xmerl_xpath:string("/Error/Code/text()", XmlDoc),
@@ -555,7 +558,7 @@ mkErr (Xml, Headers) ->
     {error, {ErrorCode, ErrorMessage, 
 	     proplists:get_value(?S3_REQ_ID_HEADER, Headers)}}.
 
-extractObjectInfo (Node) -> 
+extractObjectInfo (Node, _THIS) -> 
     [Key|_] = xmerl_xpath:string("./Key/text()", Node),
     [ETag|_] = xmerl_xpath:string("./ETag/text()", Node),
     [LastModified|_] = xmerl_xpath:string("./LastModified/text()", Node),
@@ -563,7 +566,7 @@ extractObjectInfo (Node) ->
     #s3_object_info{key=Key#xmlText.value, lastmodified=LastModified#xmlText.value,
 		 etag=ETag#xmlText.value, size=Size#xmlText.value}.
 
-openAndGetFileSize(FileName) ->
+openAndGetFileSize(FileName, _THIS) ->
     case file:open(FileName, [read, binary]) of
         {ok, File} ->
             {ok, #file_info{size=Size}} = file:read_file_info(FileName),
@@ -572,11 +575,11 @@ openAndGetFileSize(FileName) ->
             {error, no_file}
     end.
 
-sendData(Socket, File) ->
+sendData(Socket, File, _THIS) ->
     case file:read(File, ?CHUNK_SIZE) of
         {ok, Data} ->
             gen_tcp:send(Socket, Data),
-            sendData(Socket, File);
+            sendData(Socket, File, _THIS);
         eof ->
             ok
     end.

@@ -1,0 +1,8 @@
+%% -*- mode: erlang; -*-
+{application, erlaws,
+  [{description, "Erlang interface to Amazon Web Service"},
+   {vsn, "0.0.1"},
+   {modules, []},
+   {registered, []},
+   {applications, [kernel, stdlib, inets, ssl, crypto]},
+   {env, []}]}.

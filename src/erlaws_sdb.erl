@@ -6,15 +6,16 @@
 %% @end
 %%%-------------------------------------------------------------------
 
--module(erlaws_sdb, [AWS_KEY, AWS_SEC_KEY, SECURE]).
+-module(erlaws_sdb).
 
 %% exports
--export([create_domain/1, delete_domain/1, list_domains/0, list_domains/1,
-	 put_attributes/3, put_attributes/4, batch_put_attributes/2,
-	 delete_item/2, delete_attributes/3, delete_attributes/4,
-	 get_attributes/2, get_attributes/3, get_attributes/4,
-	 list_items/1, list_items/2, 
-	 query_items/2, query_items/3, select/1, select/2, storage_size/2]).
+-export([new/3]).
+-export([create_domain/2, delete_domain/2, list_domains/1, list_domains/2,
+	 put_attributes/4, put_attributes/5, batch_put_attributes/3,
+	 delete_item/3, delete_attributes/4, delete_attributes/5,
+	 get_attributes/3, get_attributes/4, get_attributes/5,
+	 list_items/2, list_items/3, 
+	 query_items/3, query_items/4, select/2, select/3, storage_size/3]).
 
 %% include record definitions
 -include_lib("xmerl/include/xmerl.hrl").
@@ -23,6 +24,9 @@
 -define(OLD_AWS_SDB_VERSION, "2007-11-07").
 -define(AWS_SDB_VERSION, "2009-04-15").
 -define(USE_SIGNATURE_V1, false).
+
+new(AWS_KEY, AWS_SEC_KEY, SECURE) ->
+	{?MODULE, [AWS_KEY, AWS_SEC_KEY, SECURE]}.
 
 %% This function creates a new SimpleDB domain. The domain name must be unique among the 
 %% domains associated with your AWS Access Key ID. This function might take 10 
@@ -34,9 +38,9 @@
 %%
 %%       Code::string() -> "InvalidParameterValue" | "MissingParameter" | "NumberDomainsExceeded"
 %%
-create_domain(Domain) ->
+create_domain(Domain, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     try genericRequest("CreateDomain", 
-		       Domain, "", [], []) of
+		       Domain, "", [], [], THIS) of
 	{ok, Body} ->
 		{XmlDoc, _Rest} = xmerl_scan:string(Body),
 		[#xmlText{value=RequestId}|_] =
@@ -51,14 +55,14 @@ create_domain(Domain) ->
 %% are deleted as well. This function might take 10 or more seconds to complete.
 %% 
 %% Spec: delete_domain(Domain::string()) -> 
-%%       {ok, Domain::string()} |
+%%       {ok, {requestId, RequestId:string()}} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%       
 %%       Code::string() -> "MissingParameter"
 %%
-delete_domain(Domain) ->
+delete_domain(Domain, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     try genericRequest("DeleteDomain", 
-		       Domain, "", [], []) of
+		       Domain, "", [], [], THIS) of
 	{ok, Body} -> 
 		{XmlDoc, _Rest} = xmerl_scan:string(Body),
 		[#xmlText{value=RequestId}|_] =
@@ -77,8 +81,8 @@ delete_domain(Domain) ->
 %%
 %% See list_domains/1 for a detailed error description
 %%
-list_domains() ->
-    list_domains([]).
+list_domains({?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    list_domains([], THIS).
 
 %% Lists domains up to the limit set by {max_domains, integer()}.
 %% A NextToken is returned if there are more than max_domains domains. 
@@ -86,17 +90,17 @@ list_domains() ->
 %% to max_domains more domain names each time.
 %%
 %% Spec: list_domains(Options::[{atom, (string() | integer())}]) ->
-%%       {ok, DomainNames::[string()], []} |
-%%       {ok, DomainNames::[string()], NextToken::string()} |
+%%       {ok, DomainNames::[string()], [], {requestId, ReqId::string()}} |
+%%       {ok, DomainNames::[string()], NextToken::string(), {requestId, ReqId::string()}} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
 %%       Options -> [{max_domains, integer()}, {next_token, string()}]
 %%
 %%       Code::string() -> "InvalidParameterValue" | "InvalidNextToken" | "MissingParameter"
 %%
-list_domains(Options) ->
+list_domains(Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     try genericRequest("ListDomains", "", "", [], 
-				[makeParam(X) || X <- Options]) of
+				[makeParam(X) || X <- Options], THIS) of
 	{ok, Body} ->
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    DomainNodes = xmerl_xpath:string("//ListDomainsResult/DomainName/text()", 
@@ -151,10 +155,11 @@ list_domains(Options) ->
 %%                         "NumberItemAttributesExceeded" | "NumberDomainAttributesExceeded" |
 %%                         "NumberDomainBytesExceeded"
 %%
-put_attributes(Domain, Item, Attributes) when is_list(Domain),
-					      is_list(Item),
-					      is_list(Attributes) ->
-    put_attributes(Domain, Item, Attributes, []).
+put_attributes(Domain, Item, Attributes, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS)
+					when is_list(Domain),
+						is_list(Item),
+						is_list(Attributes) ->
+    put_attributes(Domain, Item, Attributes, [], THIS).
 
 %% You may request "conditional put" by providing the 4th argument to
 %% put_attributes/4.
@@ -164,12 +169,12 @@ put_attributes(Domain, Item, Attributes) when is_list(Domain),
 %% [{expected, AttributeName, false}].
 %%
 %% See: http://developer.amazonwebservices.com/connect/entry.jspa?externalID=3572
-put_attributes(Domain, Item, Attributes, Options) when is_list(Domain),
+put_attributes(Domain, Item, Attributes, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Domain),
 					      is_list(Item),
 					      is_list(Attributes),
 					      is_list(Options) ->
     try genericRequest("PutAttributes", Domain, Item, 
-		   Attributes, [makeParam(X) || X <- Options]) of
+		   Attributes, [makeParam(X) || X <- Options], THIS) of
 	{ok, Body} -> 
 		{XmlDoc, _Rest} = xmerl_scan:string(Body),
 		[#xmlText{value=RequestId}|_] =
@@ -183,15 +188,15 @@ put_attributes(Domain, Item, Attributes, Options) when is_list(Domain),
 %% Deletes one or more attributes associated with the item. 
 %% 
 %% Spec: delete_attributes(Domain::string(), Item::string, Attributes::[string()]) ->
-%%       {ok} |
+%%       {ok, {requestId, ReqId::string()}} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
 %%       Code::string() -> "InvalidParameterValue" | "MissingParameter" | "NoSuchDomain"
 %%
-delete_attributes(Domain, Item, Attributes) when is_list(Domain),
+delete_attributes(Domain, Item, Attributes, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Domain),
 						 is_list(Item),
 						 is_list(Attributes) ->
-    delete_attributes(Domain, Item, Attributes, []).
+    delete_attributes(Domain, Item, Attributes, [], THIS).
 
 %% You may request "conditional delete" by providing the 4th argument to
 %% put_attributes/4.
@@ -201,12 +206,19 @@ delete_attributes(Domain, Item, Attributes) when is_list(Domain),
 %% [{expected, AttributeName, false}].
 %%
 %% See: http://developer.amazonwebservices.com/connect/entry.jspa?externalID=3572
-delete_attributes(Domain, Item, Attributes, Options) when is_list(Domain),
+delete_attributes(Domain, Item, Attributes, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Domain),
 							  is_list(Item),
 							  is_list(Attributes),
 							  is_list(Options) ->
+    Attributes0 =
+        case length(Attributes) > 0 andalso not (is_tuple(hd(Attributes))) of
+            true ->  %% [ "attr1", "attr2", "attr3" ]
+                lists:map(fun(X) -> {X, dummy} end, Attributes); 
+            false -> %% [ {"attr1", 1}, {"attr2", 2}, {"attr3", 3} ]
+                Attributes
+        end,
     try genericRequest("DeleteAttributes", Domain, Item,
-		       Attributes, [makeParam(X) || X <- Options]) of
+		       Attributes0, [makeParam(X) || X <- Options], THIS) of
 	{ok, Body} -> 
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    [#xmlText{value=RequestId}|_] =
@@ -247,10 +259,10 @@ delete_attributes(Domain, Item, Attributes, Options) when is_list(Domain),
 %%                         "NumberDomainAttributesExceeded" | "NumberDomainBytesExceeded" |
 %%                         "NumberSubmittedItemsExceeded" | "NumberSubmittedAttrubutesExceeded"
 %%
-batch_put_attributes(Domain, ItemAttributes) when is_list(Domain),
+batch_put_attributes(Domain, ItemAttributes, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Domain),
 						  is_list(ItemAttributes) ->
     try genericRequest("BatchPutAttributes", Domain, "", 
-		   ItemAttributes, []) of
+		   ItemAttributes, [], THIS) of
 	{ok, Body} -> 
 		{XmlDoc, _Rest} = xmerl_scan:string(Body),
 		[#xmlText{value=RequestId}|_] =
@@ -269,9 +281,9 @@ batch_put_attributes(Domain, ItemAttributes) when is_list(Domain),
 %%
 %%       Code::string() -> "InvalidParameterValue" | "MissingParameter" | "NoSuchDomain"
 %%
-delete_item(Domain, Item) when is_list(Domain), 
+delete_item(Domain, Item, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Domain), 
 			       is_list(Item) ->
-    try delete_attributes(Domain, Item, []) of
+    try delete_attributes(Domain, Item, [], THIS) of
 		{ok, RequestId} -> {ok, RequestId}
     catch
 		throw:{error, Descr} ->
@@ -294,10 +306,10 @@ delete_item(Domain, Item) when is_list(Domain),
 %%
 %%       Code::string() -> "InvalidParameterValue" | "MissingParameter" | "NoSuchDomain"
 %%
-get_attributes(Domain, Items) when is_list(Domain),
+get_attributes(Domain, Items, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Domain),
 				   is_list(Items), 
 				   is_list(hd(Items)) ->
-    get_attributes(Domain, Items, "");
+    get_attributes(Domain, Items, "", THIS);
 
 %% Returns all of the attributes associated with the item.
 %%
@@ -316,9 +328,9 @@ get_attributes(Domain, Items) when is_list(Domain),
 %%
 %%       Code::string() -> "InvalidParameterValue" | "MissingParameter" | "NoSuchDomain"
 %%
-get_attributes(Domain, Item) when is_list(Domain),
+get_attributes(Domain, Item, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Domain),
 				  is_list(Item) ->
-    get_attributes(Domain, Item, "").
+    get_attributes(Domain, Item, "", THIS).
 
 %% Returns the requested attribute for a list of items. 
 %%
@@ -330,12 +342,12 @@ get_attributes(Domain, Item) when is_list(Domain),
 %%
 %%       Code::string() -> "InvalidParameterValue" | "MissingParameter" | "NoSuchDomain"
 %%
-get_attributes(Domain, Items, Attribute) when is_list(Domain),
+get_attributes(Domain, Items, Attribute, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Domain),
 					      is_list(Items), 
 					      is_list(Attribute) ->
-    get_attributes(Domain, Items, Attribute, []).
+    get_attributes(Domain, Items, Attribute, [], THIS).
 
-get_attributes(Domain, Items, Attribute, Options) when is_list(Domain),
+get_attributes(Domain, Items, Attribute, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Domain),
 						       is_list(Items), 
 						       is_list(hd(Items)),
 						       is_list(Attribute),
@@ -343,7 +355,7 @@ get_attributes(Domain, Items, Attribute, Options) when is_list(Domain),
     Fetch = fun(X) -> 
 		    ParentPID = self(), 
 		    spawn(fun() ->
-				  case get_attributes(Domain, X, Attribute, Options) of
+				  case get_attributes(Domain, X, Attribute, Options, THIS) of
 				      {ok, [ItemResult]} ->
 					  ParentPID ! { ok, ItemResult };
 				      {error, Descr} -> 
@@ -374,12 +386,12 @@ get_attributes(Domain, Items, Attribute, Options) when is_list(Domain),
 %%
 %%       Code::string() -> "InvalidParameterValue" | "MissingParameter" | "NoSuchDomain"
 %%
-get_attributes(Domain, Item, Attribute, Options) when is_list(Domain),
+get_attributes(Domain, Item, Attribute, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Domain),
 						      is_list(Item),
 						      is_list(Attribute),
 						      is_list(Options) ->
     try genericRequest("GetAttributes", Domain, Item,
-		       Attribute, [makeParam(X) || X <- Options]) of
+		       Attribute, [makeParam(X) || X <- Options], THIS) of
 	{ok, Body} ->
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    AttrList = [{KN, VN} || Node <- xmerl_xpath:string("//Attribute", XmlDoc),
@@ -418,8 +430,8 @@ get_attributes(Domain, Item, Attribute, Options) when is_list(Domain),
 %%       Code::string() -> "InvalidParameterValue" | "InvalidNextToken" | 
 %%                         "MissingParameter" | "NoSuchDomain"
 %%  
-list_items(Domain) ->
-    list_items(Domain, []).
+list_items(Domain, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    list_items(Domain, [], THIS).
 
 
 %% Returns up to max_items -> integer() <= 250 items of a domain. If
@@ -439,9 +451,9 @@ list_items(Domain) ->
 %%       Code::string() -> "InvalidParameterValue" | "InvalidNextToken" | 
 %%                         "MissingParameter" | "NoSuchDomain"
 %%  
-list_items(Domain, Options) when is_list(Options) ->
+list_items(Domain, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Options) ->
     try genericRequest("Query", Domain, "", [], 
-		       [makeParam(X) || X <- [{version, ?OLD_AWS_SDB_VERSION}|Options]]) of
+		       [makeParam(X) || X <- [{version, ?OLD_AWS_SDB_VERSION}|Options]], THIS) of
 	{ok, Body} ->
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    ItemNodes = xmerl_xpath:string("//ItemName/text()", XmlDoc),
@@ -472,13 +484,13 @@ list_items(Domain, Options) when is_list(Options) ->
 %%     Code::string() -> "InvalidParameterValue" | "InvalidNextToken" | "InvalidNumberPredicates"
 %%                     | "InvalidNumberValueTests" | "InvalidQueryExpression" | "InvalidSortExpression"
 %%                     | "MissingParameter" | "NoSuchDomain" | "RequestTimeout" | "TooManyRequestAttributes"
-select(SelectExp) ->
-    select(SelectExp, []).
+select(SelectExp, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    select(SelectExp, [], THIS).
 
-select(SelectExp, Options)  when is_list(Options) ->
+select(SelectExp, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Options) ->
     try genericRequest("Select", "", "", [],
 		       [{"SelectExpression", SelectExp}|
-			[makeParam(X) || X <- Options]]) of
+			[makeParam(X) || X <- Options]], THIS) of
 	{ok, Body} ->
 	    {XmlDoc_, _Rest} = xmerl_scan:string(Body),
 	    ItemNodes = xmerl_xpath:string("//Item", XmlDoc_),
@@ -526,8 +538,8 @@ select(SelectExp, Options)  when is_list(Options) ->
 %%       Code::string() -> "InvalidParameterValue" | "InvalidNextToken" | 
 %%                         "MissingParameter" | "NoSuchDomain"
 %%  
-query_items(Domain, QueryExp) ->
-    query_items(Domain, QueryExp, []).
+query_items(Domain, QueryExp, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    query_items(Domain, QueryExp, [], THIS).
 
 %% Executes the given query expression against a domain. The syntax for
 %% such a query spec is documented here:
@@ -547,10 +559,10 @@ query_items(Domain, QueryExp) ->
 %%       Code::string() -> "InvalidParameterValue" | "InvalidNextToken" | 
 %%                         "MissingParameter" | "NoSuchDomain"
 %%  
-query_items(Domain, QueryExp, Options) when is_list(Options) ->
+query_items(Domain, QueryExp, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Options) ->
     {ok, Body} = genericRequest("Query", Domain, "", [], 
 				[{"QueryExpression", QueryExp}|
-				 [makeParam(X) || X <- [{version, ?OLD_AWS_SDB_VERSION}|Options]]]),
+				 [makeParam(X) || X <- [{version, ?OLD_AWS_SDB_VERSION}|Options]]], THIS),
     {XmlDoc, _Rest} = xmerl_scan:string(Body),
     ItemNodes = xmerl_xpath:string("//ItemName/text()", XmlDoc),
 	[#xmlText{value=RequestId}|_] =
@@ -560,40 +572,39 @@ query_items(Domain, QueryExp, Options) when is_list(Options) ->
 
 %% storage cost
 
-storage_size(Item, Attributes) ->
+storage_size(Item, Attributes, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     ItemSize = length(Item) + 45,
-    {AttrSize, ValueSize} = calcAttrStorageSize(Attributes),
+    {AttrSize, ValueSize} = calcAttrStorageSize(Attributes, THIS),
     {AttrSize, ItemSize + ValueSize}.
 
 %% internal functions
 
-calcAttrStorageSize(Attributes) ->
-    calcAttrStorageSize(Attributes, {0, 0}).
+calcAttrStorageSize(Attributes, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    calcAttrStorageSize(Attributes, {0, 0}, THIS).
 
-calcAttrStorageSize([{Attr, ValueList}|Rest], {AttrSize, ValueSize}) ->
+calcAttrStorageSize([{Attr, ValueList}|Rest], {AttrSize, ValueSize}, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     calcAttrStorageSize(Rest, {AttrSize + length(Attr) + 45, 
-			       calcValueStorageSize(ValueSize, ValueList)});
-calcAttrStorageSize([], Result) ->
+			       calcValueStorageSize(ValueSize, ValueList, THIS)}, THIS);
+calcAttrStorageSize([], Result, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}) ->
     Result.
 
-calcValueStorageSize(ValueSize, [Value|Rest]) ->
-    calcValueStorageSize(ValueSize + length(Value) + 45, Rest);
-calcValueStorageSize(ValueSize, []) ->
+calcValueStorageSize(ValueSize, [Value|Rest], {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
+    calcValueStorageSize(ValueSize + length(Value) + 45, Rest, THIS);
+calcValueStorageSize(ValueSize, [], {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}) ->
     ValueSize.
 
-sign (Key,Data) ->
+sign (Key,Data, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}) ->
     %io:format("StringToSign:~n ~p~n", [Data]),
     binary_to_list( base64:encode( crypto:sha_mac(Key,Data) ) ).
 
 genericRequest(Action, Domain, Item,
-	       Attributes, Options) when ?USE_SIGNATURE_V1 ->
-    genericRequestV1(Action, Domain, Item, Attributes, Options);
+	Attributes, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when ?USE_SIGNATURE_V1 ->
+    genericRequestV1(Action, Domain, Item, Attributes, Options, THIS);
 genericRequest(Action, Domain, Item, 
-	       Attributes, Options) ->
-    io:format("Options: ~p~n", [Options]),
+	Attributes, Options, {?MODULE, [AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     Timestamp = lists:flatten(erlaws_util:get_timestamp()),
     ActionQueryParams = getQueryParams(Action, Domain, Item, Attributes, 
-				       lists:flatten(Options)),
+				       lists:flatten(Options), THIS),
     Params =  [{"AWSAccessKeyId", AWS_KEY},
 			{"Action", Action}, 
 			{"Timestamp", Timestamp}
@@ -603,60 +614,59 @@ genericRequest(Action, Domain, Item,
 		       _ ->
 			   ActionQueryParams
 		   end,
-    Result = mkReq(Params),
+    Result = mkReq(Params, THIS),
     case Result of
 	{ok, _Status, Body} ->
 	    {ok, Body};
 	{error, {_Proto, _Code, _Reason}, Body} ->
 	    %throw({error, {integer_to_list(Code), Reason}, mkErr(Body)})
-	    throw({error, mkErr(Body)})
+	    throw({error, mkErr(Body, THIS)})
     end.
 
 
-getQueryParams("CreateDomain", Domain, _Item, _Attributes, _Options) ->
+getQueryParams("CreateDomain", Domain, _Item, _Attributes, _Options, _THIS) ->
     [{"DomainName", Domain}];
-getQueryParams("DeleteDomain", Domain, _Item, _Attributes, _Options) ->
+getQueryParams("DeleteDomain", Domain, _Item, _Attributes, _Options, _THIS) ->
     [{"DomainName", Domain}];
-getQueryParams("ListDomains", _Domain, _Item, _Attributes, Options) ->
+getQueryParams("ListDomains", _Domain, _Item, _Attributes, Options, _THIS) ->
     Options;
-getQueryParams("PutAttributes", Domain, Item, Attributes, Options) ->
+getQueryParams("PutAttributes", Domain, Item, Attributes, Options, THIS) ->
     Options ++ [{"DomainName", Domain}, {"ItemName", Item}] ++
-	buildAttributeParams(Attributes);
-getQueryParams("BatchPutAttributes", Domain, _Item, ItemAttributes, _Options) ->
+	buildAttributeParams(Attributes, THIS);
+getQueryParams("BatchPutAttributes", Domain, _Item, ItemAttributes, _Options, THIS) ->
     [{"DomainName", Domain}| 
-	buildBatchAttributeParams(ItemAttributes)];
-getQueryParams("GetAttributes", Domain, Item, Attribute, Options)  ->
+	buildBatchAttributeParams(ItemAttributes, THIS)];
+getQueryParams("GetAttributes", Domain, Item, Attribute, Options, _THIS) ->
     Options ++ [{"DomainName", Domain}, {"ItemName", Item}] ++
 	if length(Attribute) > 0 ->
 		[{"AttributeName", Attribute}];
 	   true -> []
 	end;
-getQueryParams("DeleteAttributes", Domain, Item, Attributes, Options) ->
+getQueryParams("DeleteAttributes", Domain, Item, Attributes, Options, THIS) ->
    Options ++ [{"DomainName", Domain}, {"ItemName", Item}] ++
 	if length(Attributes) > 0 -> 
-		buildAttributeParams(Attributes);
+		buildAttributeParams(Attributes, THIS);
 	   true -> []
 	end;
-getQueryParams("Select", _Domain, _Item, _Attributes, Options) ->
+getQueryParams("Select", _Domain, _Item, _Attributes, Options, _THIS) ->
     Options;
-getQueryParams("Query", Domain, _Item, _Attributes, Options) ->
+getQueryParams("Query", Domain, _Item, _Attributes, Options, _THIS) ->
     [{"DomainName", Domain}] ++ Options.
 
-getProtocol() ->
+getProtocol({?MODULE, [_AWS_KEY, _AWS_SEC_KEY, SECURE]}) ->
 	case SECURE of 
 		true -> "https://";
 		_ -> "http://" end.
 
-mkReq(Params) ->
+mkReq(Params, {?MODULE, [_AWS_KEY, AWS_SEC_KEY, _SECURE]}=THIS) ->
     QueryParams = [{"SignatureVersion", "2"}|[{"SignatureMethod", "HmacSHA1"}|Params]],
-    io:format("~p~n", [QueryParams]),
     ParamsString = erlaws_util:mkEnumeration([ erlaws_util:url_encode(Key) ++ "=" ++ erlaws_util:url_encode(Value) ||
 						 {Key, Value} <- lists:keysort(1, QueryParams)],
 					     "&"),
     StringToSign = "POST\n" ++ string:to_lower(?AWS_SDB_HOST) ++ "\n" ++ "/" ++ "\n" ++ ParamsString,
-    Signature = sign(AWS_SEC_KEY, StringToSign),
+    Signature = sign(AWS_SEC_KEY, StringToSign, THIS),
     SignatureString = "&Signature=" ++ erlaws_util:url_encode(Signature),
-    Url = getProtocol() ++ ?AWS_SDB_HOST ++ "/",
+    Url = getProtocol(THIS) ++ ?AWS_SDB_HOST ++ "/",
     PostData = ParamsString ++ SignatureString,
     %io:format("~s~n~s~n", [Url, PostData]),
     Request = {Url, [], "application/x-www-form-urlencoded", PostData},
@@ -669,13 +679,13 @@ mkReq(Params) ->
 	{_, _, _} -> {error, Status, binary_to_list(Body)}
     end.
 
-buildAttributeParams(Attributes) ->
-    CAttr = collapse(Attributes),
+buildAttributeParams(Attributes, THIS) ->
+    CAttr = collapse(Attributes, THIS),
     {_C, L} = lists:foldl(fun flattenParams/2, {0, []}, CAttr),
     %io:format("FlattenedList:~n ~p~n", [L]),
     lists:reverse(L).
 
-buildBatchAttributeParams(ItemAttributes) ->
+buildBatchAttributeParams(ItemAttributes, THIS) ->
     BuildItemHdrFun =
 	fun(F, IAs, ItemNum, Acc) ->
 		ItemNumL = integer_to_list(ItemNum),
@@ -688,7 +698,7 @@ buildBatchAttributeParams(ItemAttributes) ->
 					      [{Lead ++ X, Y}|AccIn]
 				      end,
 				      [],
-				      buildAttributeParams(Attributes))
+				      buildAttributeParams(Attributes, THIS))
 			  ++ [{Lead ++ "ItemName", Item}|Acc])
 		end
 	end,
@@ -709,8 +719,13 @@ flattenParams({K, V, R}, {C, L}) ->
 			 %io:format("~p -> ~p ~n", [K, Val]),
 			 NextCounter = Counter + 1,
 			 EntryName = mkEntryName(Counter, K),
-			 EntryValue = mkEntryValue(Counter, Val),
-			 {NextCounter,  [EntryValue | [EntryName | ResultList]]}
+			 case is_atom(Val) of
+			     true ->
+			         {NextCounter, [EntryName | ResultList]};
+			     false ->
+			         EntryValue = mkEntryValue(Counter, Val),
+			         {NextCounter,  [EntryValue | [EntryName | ResultList]]}
+			 end
 		 end,
     if length(V) > 0 ->
 	    lists:foldl(FlattenVal, PreResult, V);
@@ -742,8 +757,8 @@ aggrV({K,V}, L) -> [{K,[V],false}|L];
 
 aggrV(K, L) -> [{K, [], false}|L].
 
-collapse(L) ->
-    AggrL = lists:foldl( fun aggrV/2, [], lists:keysort(1, L) ),
+collapse(L, _THIS) ->
+    AggrL = lists:foldl( fun aggrV/2, [], lists:keysort(1, L)),
     lists:keymap( fun lists:sort/1, 2, lists:reverse(AggrL)).
 
 makeParam(X) ->
@@ -772,7 +787,7 @@ makeParam(X) ->
 aggregateAttr ({K,V}, [{K,L}|T]) -> [{K,[V|L]}|T];
 aggregateAttr ({K,V}, L) -> [{K,[V]}|L].
 
-mkErr(Xml) ->
+mkErr(Xml, _THIS) ->
     {XmlDoc, _Rest} = xmerl_scan:string( Xml ),
     [#xmlText{value=ErrorCode}|_] = xmerl_xpath:string("//Error/Code/text()", XmlDoc),
     [#xmlText{value=ErrorMessage}|_] = xmerl_xpath:string("//Error/Message/text()", XmlDoc),
@@ -785,10 +800,10 @@ mkErr(Xml) ->
 %%% left below for compatibility.
 
 genericRequestV1(Action, Domain, Item, 
-	       Attributes, Options) ->
+	Attributes, Options, {?MODULE, [AWS_KEY, AWS_SEC_KEY, _SECURE]}=THIS) ->
     Timestamp = lists:flatten(erlaws_util:get_timestamp()),
     ActionQueryParams = getQueryParams(Action, Domain, Item, Attributes, 
-				       lists:flatten(Options)),
+				       lists:flatten(Options), THIS),
 	SignParams = [{"AWSAccessKeyId", AWS_KEY},
 			{"Action", Action}, 
 			{"SignatureVersion", "1"},
@@ -805,20 +820,20 @@ genericRequestV1(Action, Domain, Item,
 		string:to_lower(KeyA) =< string:to_lower(KeyB) end, 
 		SignParams)], ""),		
 
-    Signature = sign(AWS_SEC_KEY, StringToSign),
+    Signature = sign(AWS_SEC_KEY, StringToSign, THIS),
     FinalQueryParams = SignParams ++ [{"Signature", Signature}],
-    Result = mkReqV1(FinalQueryParams),
+    Result = mkReqV1(FinalQueryParams, THIS),
     case Result of
 	{ok, _Status, Body} ->
 	    {ok, Body};
 	{error, {_Proto, _Code, _Reason}, Body} ->
 	    %throw({error, {integer_to_list(Code), Reason}, mkErr(Body)})
-	    throw({error, mkErr(Body)})
+	    throw({error, mkErr(Body, THIS)})
     end.
 
-mkReqV1(QueryParams) ->
+mkReqV1(QueryParams, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     %io:format("QueryParams:~n ~p~n", [QueryParams]),
-    Url = getProtocol() ++ ?AWS_SDB_HOST ++ "/" ++ erlaws_util:queryParams( QueryParams ),
+    Url = getProtocol(THIS) ++ ?AWS_SDB_HOST ++ "/" ++ erlaws_util:queryParams( QueryParams ),
     %io:format("RequestUrl:~n ~p~n", [Url]),
     Request = {Url, []},
     HttpOptions = [{autoredirect, true}],
