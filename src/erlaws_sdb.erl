@@ -602,7 +602,6 @@ genericRequest(Action, Domain, Item,
     genericRequestV1(Action, Domain, Item, Attributes, Options, THIS);
 genericRequest(Action, Domain, Item, 
 	Attributes, Options, {?MODULE, [AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
-    io:format("Options: ~p~n", [Options]),
     Timestamp = lists:flatten(erlaws_util:get_timestamp()),
     ActionQueryParams = getQueryParams(Action, Domain, Item, Attributes, 
 				       lists:flatten(Options), THIS),
@@ -661,7 +660,6 @@ getProtocol({?MODULE, [_AWS_KEY, _AWS_SEC_KEY, SECURE]}) ->
 
 mkReq(Params, {?MODULE, [_AWS_KEY, AWS_SEC_KEY, _SECURE]}=THIS) ->
     QueryParams = [{"SignatureVersion", "2"}|[{"SignatureMethod", "HmacSHA1"}|Params]],
-    io:format("~p~n", [QueryParams]),
     ParamsString = erlaws_util:mkEnumeration([ erlaws_util:url_encode(Key) ++ "=" ++ erlaws_util:url_encode(Value) ||
 						 {Key, Value} <- lists:keysort(1, QueryParams)],
 					     "&"),

@@ -343,7 +343,6 @@ get_object(Bucket, Key, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
 info_object(Bucket, Key, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     try genericRequest(head, Bucket, Key, [], [], [], <<>>, THIS) of
 	{ok, Headers, _Body} ->
-	    io:format("Headers: ~p~n", [Headers]),
 		MetadataList = [{string:substr(MKey, 12), Value} || {MKey, Value} <- Headers, string:str(MKey, "x-amz-meta") == 1],
 		RequestId = case lists:keytake(?S3_REQ_ID_HEADER, 1, Headers) of
 			{value, {_, ReqId}, _} -> ReqId;
