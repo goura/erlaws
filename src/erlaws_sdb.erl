@@ -100,7 +100,7 @@ list_domains({?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
 %%
 list_domains(Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
     try genericRequest("ListDomains", "", "", [], 
-				[makeParam(X, THIS) || X <- Options], THIS) of
+				[makeParam(X) || X <- Options], THIS) of
 	{ok, Body} ->
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    DomainNodes = xmerl_xpath:string("//ListDomainsResult/DomainName/text()", 
@@ -174,7 +174,7 @@ put_attributes(Domain, Item, Attributes, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_
 					      is_list(Attributes),
 					      is_list(Options) ->
     try genericRequest("PutAttributes", Domain, Item, 
-		   Attributes, [makeParam(X, THIS) || X <- Options], THIS) of
+		   Attributes, [makeParam(X) || X <- Options], THIS) of
 	{ok, Body} -> 
 		{XmlDoc, _Rest} = xmerl_scan:string(Body),
 		[#xmlText{value=RequestId}|_] =
@@ -210,8 +210,15 @@ delete_attributes(Domain, Item, Attributes, Options, {?MODULE, [_AWS_KEY, _AWS_S
 							  is_list(Item),
 							  is_list(Attributes),
 							  is_list(Options) ->
+    Attributes0 =
+        case length(Attributes) > 0 andalso not (is_tuple(hd(Attributes))) of
+            true ->  %% [ "attr1", "attr2", "attr3" ]
+                lists:map(fun(X) -> {X, dummy} end, Attributes); 
+            false -> %% [ {"attr1", 1}, {"attr2", 2}, {"attr3", 3} ]
+                Attributes
+        end,
     try genericRequest("DeleteAttributes", Domain, Item,
-		       Attributes, [makeParam(X, THIS) || X <- Options], THIS) of
+		       Attributes0, [makeParam(X) || X <- Options], THIS) of
 	{ok, Body} -> 
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    [#xmlText{value=RequestId}|_] =
@@ -384,7 +391,7 @@ get_attributes(Domain, Item, Attribute, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_K
 						      is_list(Attribute),
 						      is_list(Options) ->
     try genericRequest("GetAttributes", Domain, Item,
-		       Attribute, [makeParam(X, THIS) || X <- Options], THIS) of
+		       Attribute, [makeParam(X) || X <- Options], THIS) of
 	{ok, Body} ->
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    AttrList = [{KN, VN} || Node <- xmerl_xpath:string("//Attribute", XmlDoc),
@@ -401,7 +408,7 @@ get_attributes(Domain, Item, Attribute, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_K
 						_ -> ValueRaw end,
 					true
 				    end],
-	    {ok, [{Item, lists:foldr(fun aggregateAttr/3, [], AttrList, THIS)}]}
+	    {ok, [{Item, lists:foldr(fun aggregateAttr/2, [], AttrList)}]}
     catch 
 	throw:{error, Descr} ->
 	    {error, Descr}
@@ -446,7 +453,7 @@ list_items(Domain, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
 %%  
 list_items(Domain, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Options) ->
     try genericRequest("Query", Domain, "", [], 
-		       [makeParam(X, THIS) || X <- [{version, ?OLD_AWS_SDB_VERSION}|Options]], THIS) of
+		       [makeParam(X) || X <- [{version, ?OLD_AWS_SDB_VERSION}|Options]], THIS) of
 	{ok, Body} ->
 	    {XmlDoc, _Rest} = xmerl_scan:string(Body),
 	    ItemNodes = xmerl_xpath:string("//ItemName/text()", XmlDoc),
@@ -483,7 +490,7 @@ select(SelectExp, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
 select(SelectExp, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Options) ->
     try genericRequest("Select", "", "", [],
 		       [{"SelectExpression", SelectExp}|
-			[makeParam(X, THIS) || X <- Options]], THIS) of
+			[makeParam(X) || X <- Options]], THIS) of
 	{ok, Body} ->
 	    {XmlDoc_, _Rest} = xmerl_scan:string(Body),
 	    ItemNodes = xmerl_xpath:string("//Item", XmlDoc_),
@@ -507,7 +514,7 @@ select(SelectExp, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) wh
 							     _ -> ValueRaw end,
 						    true
 						end],
-			{Item, lists:foldr(fun aggregateAttr/3, [], AttrList, THIS)}
+			{Item, lists:foldr(fun aggregateAttr/2, [], AttrList)}
 		end,
 	    Items = [F(ItemNode) || ItemNode <- ItemNodes],
 	    {ok, Items, NextToken}
@@ -555,7 +562,7 @@ query_items(Domain, QueryExp, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS)
 query_items(Domain, QueryExp, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) when is_list(Options) ->
     {ok, Body} = genericRequest("Query", Domain, "", [], 
 				[{"QueryExpression", QueryExp}|
-				 [makeParam(X, THIS) || X <- [{version, ?OLD_AWS_SDB_VERSION}|Options]]], THIS),
+				 [makeParam(X) || X <- [{version, ?OLD_AWS_SDB_VERSION}|Options]]], THIS),
     {XmlDoc, _Rest} = xmerl_scan:string(Body),
     ItemNodes = xmerl_xpath:string("//ItemName/text()", XmlDoc),
 	[#xmlText{value=RequestId}|_] =
@@ -676,7 +683,7 @@ mkReq(Params, {?MODULE, [_AWS_KEY, AWS_SEC_KEY, _SECURE]}=THIS) ->
 
 buildAttributeParams(Attributes, THIS) ->
     CAttr = collapse(Attributes, THIS),
-    {_C, L} = lists:foldl(fun flattenParams/3, {0, []}, CAttr, THIS),
+    {_C, L} = lists:foldl(fun flattenParams/2, {0, []}, CAttr),
     %io:format("FlattenedList:~n ~p~n", [L]),
     lists:reverse(L).
 
@@ -699,12 +706,12 @@ buildBatchAttributeParams(ItemAttributes, THIS) ->
 	end,
     lists:reverse(BuildItemHdrFun(BuildItemHdrFun, ItemAttributes, 0, [])).
 
-mkEntryName(Counter, Key, _THIS) ->
+mkEntryName(Counter, Key) ->
     {"Attribute." ++ integer_to_list(Counter) ++ ".Name", Key}.
-mkEntryValue(Counter, Value, _THIS) ->
+mkEntryValue(Counter, Value) ->
     {"Attribute."++integer_to_list(Counter) ++ ".Value", Value}.
 
-flattenParams({K, V, R}, {C, L}, THIS) ->
+flattenParams({K, V, R}, {C, L}) ->
     PreResult = if R ->
 			{C, [{"Attribute." ++ integer_to_list(C) 
 			      ++ ".Replace", "true"} | L]};
@@ -713,45 +720,50 @@ flattenParams({K, V, R}, {C, L}, THIS) ->
     FlattenVal = fun(Val, {Counter, ResultList}) ->
 			 %io:format("~p -> ~p ~n", [K, Val]),
 			 NextCounter = Counter + 1,
-			 EntryName = mkEntryName(Counter, K, THIS),
-			 EntryValue = mkEntryValue(Counter, Val, THIS),
-			 {NextCounter,  [EntryValue | [EntryName | ResultList]]}
+			 EntryName = mkEntryName(Counter, K),
+			 case is_atom(Val) of
+			     true ->
+			         {NextCounter, [EntryName | ResultList]};
+			     false ->
+			         EntryValue = mkEntryValue(Counter, Val),
+			         {NextCounter,  [EntryValue | [EntryName | ResultList]]}
+			 end
 		 end,
     if length(V) > 0 ->
 	    lists:foldl(FlattenVal, PreResult, V);
-       length(V) =:= 0 -> {C + 1, [mkEntryName(C, K, THIS) | L]}
+       length(V) =:= 0 -> {C + 1, [mkEntryName(C, K) | L]}
     end.
 
-aggrV({K,V,true}, [{K,L,_OR}|T], _THIS) when is_list(V),
+aggrV({K,V,true}, [{K,L,_OR}|T]) when is_list(V),
 				      is_list(hd(V)) -> 
     [{K,V ++ L, true}|T];
-aggrV({K,V,true}, [{K,L,_OR}|T], _THIS) -> [{K,[V|L], true}|T];
+aggrV({K,V,true}, [{K,L,_OR}|T]) -> [{K,[V|L], true}|T];
 
-aggrV({K,V,false}, [{K, L, OR}|T], _THIS) when is_list(V),
+aggrV({K,V,false}, [{K, L, OR}|T]) when is_list(V),
 					is_list(hd(V)) -> 
     [{K, V ++ L, OR}|T];
-aggrV({K,V,false}, [{K, L, OR}|T], _THIS) -> [{K, [V|L], OR}|T];
+aggrV({K,V,false}, [{K, L, OR}|T]) -> [{K, [V|L], OR}|T];
 
-aggrV({K,V}, [{K,L,OR}|T], _THIS) when is_list(V),
+aggrV({K,V}, [{K,L,OR}|T]) when is_list(V),
 				is_list(hd(V))-> 
     [{K,V ++ L,OR}|T];
-aggrV({K,V}, [{K,L,OR}|T], _THIS) -> [{K,[V|L],OR}|T];
+aggrV({K,V}, [{K,L,OR}|T]) -> [{K,[V|L],OR}|T];
 
-aggrV({K,V,R}, L, _THIS) when is_list(V),
+aggrV({K,V,R}, L) when is_list(V),
 		       is_list(hd(V)) -> [{K, V, R}|L];
-aggrV({K,V,R}, L, _THIS) -> [{K,[V], R}|L];
+aggrV({K,V,R}, L) -> [{K,[V], R}|L];
 
-aggrV({K,V}, L, _THIS) when is_list(V),
+aggrV({K,V}, L) when is_list(V),
 		     is_list(hd(V)) -> [{K,V,false}|L];
-aggrV({K,V}, L, _THIS) -> [{K,[V],false}|L];
+aggrV({K,V}, L) -> [{K,[V],false}|L];
 
-aggrV(K, L, _THIS) -> [{K, [], false}|L].
+aggrV(K, L) -> [{K, [], false}|L].
 
-collapse(L, THIS) ->
-    AggrL = lists:foldl( fun aggrV/3, [], lists:keysort(1, L), THIS),
+collapse(L, _THIS) ->
+    AggrL = lists:foldl( fun aggrV/2, [], lists:keysort(1, L)),
     lists:keymap( fun lists:sort/1, 2, lists:reverse(AggrL)).
 
-makeParam(X, _THIS) ->
+makeParam(X) ->
     case X of
 	{_, []} -> {};
 	{max_items, MaxItems} when is_integer(MaxItems) ->
@@ -774,8 +786,8 @@ makeParam(X, _THIS) ->
     end.
 
 
-aggregateAttr ({K,V}, [{K,L}|T], _THIS) -> [{K,[V|L]}|T];
-aggregateAttr ({K,V}, L, _THIS) -> [{K,[V]}|L].
+aggregateAttr ({K,V}, [{K,L}|T]) -> [{K,[V|L]}|T];
+aggregateAttr ({K,V}, L) -> [{K,[V]}|L].
 
 mkErr(Xml, _THIS) ->
     {XmlDoc, _Rest} = xmerl_scan:string( Xml ),
