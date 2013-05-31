@@ -203,7 +203,7 @@ test_connection_1_basic(Config) ->
     ct:print("BucketName: ~s", [BucketName]),
     {ok, BucketName, _} = C:create_bucket(BucketName),
 
-    %% Try a list_buckets and see if it's really there
+    %% Try list_buckets and see if it's really there
     {ok, BucketNames, _} = C:list_buckets(),
     true = lists:member(BucketName, BucketNames),
     
@@ -247,7 +247,7 @@ test_connection_1_basic(Config) ->
     %% Now delete bucket
     {ok, _} =  C:delete_bucket(BucketName),
 
-    %% Try a list_buckets and ensure it's not there
+    %% Try list_buckets and ensure it's not there
     {ok, BucketNames99, _} =C:list_buckets(),
     false = lists:member(BucketName, BucketNames99).
 
