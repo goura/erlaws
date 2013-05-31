@@ -55,7 +55,7 @@ create_domain(Domain, {?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
 %% are deleted as well. This function might take 10 or more seconds to complete.
 %% 
 %% Spec: delete_domain(Domain::string()) -> 
-%%       {ok, Domain::string()} |
+%%       {ok, {requestId, RequestId:string()}} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%       
 %%       Code::string() -> "MissingParameter"
@@ -90,8 +90,8 @@ list_domains({?MODULE, [_AWS_KEY, _AWS_SEC_KEY, _SECURE]}=THIS) ->
 %% to max_domains more domain names each time.
 %%
 %% Spec: list_domains(Options::[{atom, (string() | integer())}]) ->
-%%       {ok, DomainNames::[string()], []} |
-%%       {ok, DomainNames::[string()], NextToken::string()} |
+%%       {ok, DomainNames::[string()], [], {requestId, ReqId::string()}} |
+%%       {ok, DomainNames::[string()], NextToken::string(), {requestId, ReqId::string()}} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
 %%       Options -> [{max_domains, integer()}, {next_token, string()}]
@@ -188,7 +188,7 @@ put_attributes(Domain, Item, Attributes, Options, {?MODULE, [_AWS_KEY, _AWS_SEC_
 %% Deletes one or more attributes associated with the item. 
 %% 
 %% Spec: delete_attributes(Domain::string(), Item::string, Attributes::[string()]) ->
-%%       {ok} |
+%%       {ok, {requestId, ReqId::string()}} |
 %%       {error, {Code::string(), Msg::string(), ReqId::string()}}
 %%
 %%       Code::string() -> "InvalidParameterValue" | "MissingParameter" | "NoSuchDomain"
