@@ -495,8 +495,7 @@ genericRequest( Method, Bucket, Path, QueryParams, Metadata,
 
     Signature = sign(SecretAccessKey,
 		     stringToSign(MethodString, ContentMD5, ContentType, Date,
-				  Bucket,
-				  Path ++ erlaws_util:queryParams(QueryParams),
+				  Bucket, Path,
 				  Headers, THIS), THIS),
     
     FinalHeaders = [ {"Authorization","AWS " ++ AccessKey ++ ":" ++ Signature },

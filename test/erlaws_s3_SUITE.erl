@@ -198,56 +198,169 @@ test_connection_1_basic(Config) ->
     C = proplists:get_value(s3, Config),
     ct:print("C: ~p", [C]),
 
-    %% Create a new, empty bucket
     BucketName = lists:flatten(io_lib:format("test-~w-~w-~w", tuple_to_list(now()))),
+    part_create_bucket(C, BucketName),
+    timer:sleep(1000),
+    try
+        part_put_and_get_objects(C, BucketName)
+    after
+        part_delete_objects(C, BucketName),
+        part_delete_bucket(C, BucketName)
+    end.
+
+test_list_1(Config) ->
+    C = proplists:get_value(s3, Config),
+    ct:print("C: ~p", [C]),
+
+    BucketName = lists:flatten(io_lib:format("test-~w-~w-~w", tuple_to_list(now()))),
+    part_create_bucket(C, BucketName),
+    timer:sleep(1000),
+    try
+        part_put_and_get_objects(C, BucketName),
+        part_list_contents(C, BucketName)
+    after
+        part_delete_objects(C, BucketName),
+        part_delete_bucket(C, BucketName)
+    end.
+
+
+%%%%% Test parts %%%%%
+
+part_create_bucket(S3, BucketName) ->
+    %% Create a new, empty bucket
     ct:print("BucketName: ~s", [BucketName]),
-    {ok, BucketName, _} = C:create_bucket(BucketName),
+    {ok, BucketName, _} = S3:create_bucket(BucketName),
 
     %% Try list_buckets and see if it's really there
-    {ok, BucketNames, _} = C:list_buckets(),
-    true = lists:member(BucketName, BucketNames),
-    
+    {ok, BucketNames, _} = S3:list_buckets(),
+    true = lists:member(BucketName, BucketNames).
+
+part_put_and_get_objects(S3, BucketName) ->
     %% Upload 01
     Data01 = <<"This is a test of file upload and download">>,
-    {ok, _, _} =
-        C:put_object(BucketName, "foobar", Data01, "text/plain", []),
-    
+    {ok, _, _} = S3:put_object(BucketName, "foobar", Data01,
+                               "text/plain", []),
+
     %% Upload 02
     Data02 = <<"Another test data">>,
-    {ok, _, _} = 
-        C:put_object(BucketName, "barbaz", Data02, "text/plain", [{"name", "metavalue"}]),
-    
+    {ok, _, _} = S3:put_object(BucketName, "barbaz", Data02,
+                               "text/plain", [{"name", "metavalue"}]),
+
     %% Download 01
-    {ok, Data01, _} =
-        C:get_object(BucketName, "foobar"),
-    
+    {ok, Data01, _} = S3:get_object(BucketName, "foobar"),
+
     %% Download 02
-    {ok, Data02, _} =
-        C:get_object(BucketName, "barbaz"),
+    {ok, Data02, _} = S3:get_object(BucketName, "barbaz"),
 
     %% Try to download not existing key
-    {error, {"NoSuchKey", _, _}} =
-        C:get_object(BucketName, "bogus"),
-    
+    {error, {"NoSuchKey", _, _}} = S3:get_object(BucketName, "bogus"),
+
     %% Info 01
-    {ok, [], _} = C:info_object(BucketName, "foobar"),
-    
+    {ok, [], _} = S3:info_object(BucketName, "foobar"),
+
     %% Info 02
-    {ok, [{"name", "metavalue"}], _} = C:info_object(BucketName, "barbaz"),
-    
-    %% Try to delete before emptying
-    {error, _} = C:delete_bucket(BucketName),
-    
+    {ok, [{"name", "metavalue"}], _} = S3:info_object(BucketName, "barbaz").
+
+part_delete_objects(S3, BucketName) ->
     %% Delete 01
-    {ok, _} = C:delete_object(BucketName, "foobar"),
-    
+    {ok, _} = S3:delete_object(BucketName, "foobar"),
+
     %% Delete 02
-    {ok, _} = C:delete_object(BucketName, "barbaz"),
-        
+    {ok, _} = S3:delete_object(BucketName, "barbaz"),
+
+    %% Delete all
+    {ok, {s3_list_result, _, Contents, _}, _} = S3:list_contents(BucketName),
+    lists:map(fun(Elm)->
+                      {s3_object_info, Path, _, _, _} = Elm,
+                      S3:delete_object(BucketName, Path)
+              end, Contents).
+
+
+part_delete_bucket(S3, BucketName) ->
     %% Now delete bucket
-    {ok, _} =  C:delete_bucket(BucketName),
+    {ok, _} =  S3:delete_bucket(BucketName),
 
     %% Try list_buckets and ensure it's not there
-    {ok, BucketNames99, _} =C:list_buckets(),
+    {ok, BucketNames99, _} =S3:list_buckets(),
     false = lists:member(BucketName, BucketNames99).
 
+part_list_contents(S3, BucketName) ->
+    %% Assuming part_create_bucket() and part_put_and_get_objects() were already called.
+    {ok, {s3_list_result, _, Contents01, _}, _} = S3:list_contents(BucketName),
+    2 = length(Contents01), % Ref part_put_and_get_objects/2
+
+    lists:map(fun(Elm) ->
+                {s3_object_info, Path01, _, _, _} = Elm, % Ignore Date, Etag and Size
+                true = lists:member(Path01, ["foobar", "barbaz"])
+              end, Contents01),
+
+    %% Limit the number of results to 1
+    {ok, {s3_list_result, _, Contents02, _}, _} = S3:list_contents(BucketName, [{max_keys, 1}]),
+    1 = length(Contents02),
+    [{s3_object_info, Path02, _, _, _}] = Contents02,
+    true = lists:member(Path02, ["foobar", "barbaz"]),
+
+    %% Add test data for prefix tests
+    PData01 = <<"For prefix test 01">>,
+    {ok, _, _} =
+        S3:put_object(BucketName, "hahaha/fufufu", PData01, "text/plain", []),
+
+    PData02 = <<"For prefix test 02">>,
+    {ok, _, _} =
+        S3:put_object(BucketName, "gagaga/fufufu", PData02, "text/plain", []),
+
+    PData03 = <<"For prefix test 03">>,
+    {ok, _, _} =
+        S3:put_object(BucketName, "gagaga/lalala", PData03, "text/plain", []),
+
+    PData04 = <<"For prefix test 04">>,
+    {ok, _, _} =
+        S3:put_object(BucketName, "gagaga/tatata", PData04, "text/plain", []),
+
+    PData05 = <<"For prefix test 05">>,
+    {ok, _, _} =
+        S3:put_object(BucketName, "gagaga/gigigi/fafafa", PData05, "text/plain", []),
+
+    PData06 = <<"For prefix test 06">>,
+    {ok, _, _} =
+        S3:put_object(BucketName, "gagaga/gigigi/fufufu", PData06, "text/plain", []),
+
+    %% Prefix test
+    {ok, {s3_list_result, _, Contents03, _}, _} = S3:list_contents(BucketName, [{prefix, "gagaga"}]),
+    5 = length(Contents03),
+    lists:map(fun(Elm) ->
+                {s3_object_info, Path03, _, _, _} = Elm,
+                true = lists:member(Path03, ["gagaga/fufufu", "gagaga/gigigi/fafafa", "gagaga/gigigi/fufufu", "gagaga/lalala", "gagaga/tatata"])
+              end, Contents03),
+
+    %% Prefix and max_keys
+    {ok, {s3_list_result, _, Contents04, _}, _} = S3:list_contents(BucketName, [{prefix, "gagaga"}, {max_keys, 2}]),
+    2 = length(Contents04),
+    lists:map(fun(Elm) ->
+                {s3_object_info, Path04, _, _, _} = Elm,
+                true = lists:member(Path04, ["gagaga/fufufu", "gagaga/gigigi/fafafa"])
+              end, Contents04),
+
+    %% Prefix and marker
+    {ok, {s3_list_result, _, Contents05, _}, _} = S3:list_contents(BucketName, [{prefix, "gagaga"}, {marker, "gagaga/gigigi/fafafa"}]),
+    3 = length(Contents05),
+    lists:map(fun(Elm) ->
+                {s3_object_info, Path05, _, _, _} = Elm,
+                true = lists:member(Path05, ["gagaga/gigigi/fufufu", "gagaga/lalala", "gagaga/tatata"])
+              end, Contents05),
+
+    %% Prefix and delimiter
+    {ok, {s3_list_result, _, Contents06, Prefixes06}, _} = S3:list_contents(BucketName, [{prefix, "gagaga"}, {delimiter, "/"}]),
+    0 = length(Contents06),
+    1 = length(Prefixes06),
+    ["gagaga/"] = Prefixes06,
+
+    %% delimiter
+    {ok, {s3_list_result, _, Contents07, Prefixes07}, _} = S3:list_contents(BucketName, [{delimiter, "/"}]),
+    2 = length(Contents07),
+    2 = length(Prefixes07),
+    lists:map(fun(Elm) ->
+                      {s3_object_info, Path07, _, _, _} = Elm,
+                      true = lists:member(Path07, ["barbaz", "foobar"])
+              end, Contents07),
+    ["gagaga/", "hahaha/"] = Prefixes07.
